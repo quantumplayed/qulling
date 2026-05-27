@@ -402,7 +402,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-black overflow-x-hidden text-zinc-900 dark:text-white font-sans">
       {/* Navbar */}
-      <nav className="taller-nav-header px-8 sm:px-12 border-b border-zinc-200 dark:border-white/10 backdrop-blur-md sticky top-0 z-50 bg-white/80 dark:bg-black/50 text-zinc-900 dark:text-white">
+      <nav className="taller-nav-header px-4 sm:px-12 border-b border-zinc-200 dark:border-white/10 backdrop-blur-md sticky top-0 z-50 bg-white/80 dark:bg-black/50 text-zinc-900 dark:text-white">
         <div className="container mx-auto flex justify-between items-center">
           <Link to="/" className="flex items-center gap-2 cursor-pointer group">
             <Cpu className="text-[#3ecf8e] animate-pulse-glow" />
@@ -434,7 +434,7 @@ function App() {
               <div className="relative">
                 <button
                   onClick={() => setShowInternalMenu(!showInternalMenu)}
-                  className="px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 hover:bg-zinc-200 dark:hover:bg-white/5 text-zinc-800 dark:text-gray-200 text-xs font-bold rounded-xl transition-all h-10 flex items-center gap-2 cursor-pointer"
+                  className="px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 hover:bg-zinc-200 dark:hover:bg-white/5 text-zinc-800 dark:text-gray-250 text-xs font-bold rounded-xl transition-all h-10 flex items-center gap-2 cursor-pointer"
                 >
                   <User size={14} className="text-[#3ecf8e]" />
                   {(currentUser.name || currentUser.email || '').split(' ')[0]}
@@ -443,7 +443,7 @@ function App() {
                 {showInternalMenu && (
                   <div className="absolute right-0 mt-6 w-80 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 z-[100] backdrop-blur-md text-left">
                     <div className="p-8 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5 text-center flex flex-col items-center">
-                      <div className="text-zinc-800 dark:text-gray-200 font-bold text-lg leading-snug break-all max-w-[240px]">{currentUser.name || currentUser.email}</div>
+                      <div className="text-zinc-800 dark:text-gray-250 font-bold text-lg leading-snug break-all max-w-[240px]">{currentUser.name || currentUser.email}</div>
                       <div className="text-[10px] uppercase font-mono text-[#3ecf8e] tracking-wider mt-1.5 font-semibold">{currentUser.role} • {currentUser.affiliation}</div>
                     </div>
 
@@ -453,7 +453,7 @@ function App() {
                           setIsProfileOpen(true);
                           setShowInternalMenu(false);
                         }}
-                        className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-200 cursor-pointer"
+                        className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-250 cursor-pointer"
                       >
                         <User size={20} className="text-[#3ecf8e]" />
                         Edit Profile
@@ -465,7 +465,7 @@ function App() {
                             navigate('/dashboard');
                             setShowInternalMenu(false);
                           }}
-                          className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-200 cursor-pointer"
+                          className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-250 cursor-pointer"
                         >
                           <Award size={20} className="text-[#3ecf8e]" />
                           My Evaluation
@@ -478,7 +478,7 @@ function App() {
                             navigate('/expert');
                             setShowInternalMenu(false);
                           }}
-                          className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-200 cursor-pointer"
+                          className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-250 cursor-pointer"
                         >
                           <UserCheck size={20} className="text-purple-400" />
                           Review Workspace
@@ -491,7 +491,7 @@ function App() {
                             navigate('/editor');
                             setShowInternalMenu(false);
                           }}
-                          className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-200 cursor-pointer"
+                          className="w-full flex items-center justify-center gap-3.5 px-4 py-4 text-base font-bold bg-transparent hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl transition-all text-zinc-700 dark:text-gray-250 cursor-pointer"
                         >
                           <LayoutDashboard size={20} className="text-cyan-400" />
                           Admin Console
@@ -513,7 +513,7 @@ function App() {
             ) : (
               <button
                 onClick={() => setIsAuthOpen(true)}
-                className="supabase-btn-green px-10 py-3 text-sm font-semibold rounded-xl min-w-[130px] h-12 flex items-center justify-center hover:shadow-lg active:scale-95 transition-all cursor-pointer"
+                className="supabase-btn-green px-4 sm:px-10 py-3 text-sm font-semibold rounded-xl min-w-[90px] sm:min-w-[130px] h-12 flex items-center justify-center hover:shadow-lg active:scale-95 transition-all cursor-pointer"
               >
                 Sign In
               </button>
@@ -747,30 +747,30 @@ function App() {
 
       {/* Curation Reference details modal */}
       {selectedCurationRef && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
-          <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
-            <header className="p-6 border-b border-zinc-200 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-green-500/5 dark:from-green-950/20 to-transparent">
+        <div className="fixed inset-0 z-[200] overflow-y-auto flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
+          <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
+            <header className="p-4 sm:p-6 border-b border-zinc-200 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-green-500/5 dark:from-green-950/20 to-transparent">
               <div>
-                <div className="flex items-center gap-2 mb-1.5">
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-400 rounded-full text-[9px] font-black uppercase tracking-wider">
                     <ShieldCheck size={11} /> Curation Audit Verified
                   </span>
                   <span className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono">Reference ID: {selectedCurationRef.id}</span>
                 </div>
-                <h3 className="text-lg font-black text-zinc-900 dark:text-white leading-snug">{selectedCurationRef.title}</h3>
+                <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white leading-snug">{selectedCurationRef.title}</h3>
                 <p className="text-xs text-zinc-500 dark:text-gray-400 font-mono mt-1">{selectedCurationRef.author} ({selectedCurationRef.year})</p>
               </div>
               <button
                 onClick={() => setSelectedCurationRef(null)}
-                className="p-1.5 hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-500 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white transition-all ml-4"
+                className="p-1.5 hover:bg-zinc-100 dark:hover:bg-white/5 border border-zinc-200 dark:border-white/10 rounded-lg text-zinc-500 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white transition-all ml-4 shrink-0"
               >
                 <X size={18} />
               </button>
             </header>
 
-            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 text-left">
               {/* Reviewer Details */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl">
                   <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500">Expert Auditor</span>
                   <h5 className="font-black text-sm text-zinc-800 dark:text-gray-200 mt-1">{selectedCurationRef.assessment.reviewer_name}</h5>

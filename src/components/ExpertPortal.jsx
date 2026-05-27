@@ -311,7 +311,7 @@ const ExpertPortal = ({ currentUser }) => {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.03)_0%,transparent_70%)] pointer-events-none" />
             <div className="absolute top-20 left-20 w-[600px] h-[600px] bg-purple-500/5 blur-[130px] rounded-full pointer-events-none" />
 
-            <div className="container mx-auto max-w-7xl relative z-10">
+            <div className="dashboard-container relative z-10">
                 {/* Header */}
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12 pb-8 border-b border-zinc-200 dark:border-white/10">
                     <div>
@@ -394,7 +394,7 @@ const ExpertPortal = ({ currentUser }) => {
                             ) : paperContent ? (
                                 <div className="grid lg:grid-cols-12 gap-8">
                                     {/* Left Pane - Reader / PDF Toggle */}
-                                    <div className="lg:col-span-7 flex flex-col h-[78vh] border-1.5 border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl overflow-hidden shadow-2xl">
+                                    <div className="lg:col-span-7 flex flex-col h-[50vh] lg:h-[78vh] border-1.5 border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl overflow-hidden shadow-2xl">
                                         <header className="px-6 py-5 border-b border-zinc-100 dark:border-white/5 flex justify-between items-center bg-zinc-50 dark:bg-black/40">
                                             <div className="flex items-center gap-2">
                                                 <BookOpen size={16} className="text-purple-500 dark:text-purple-400" />
@@ -438,7 +438,7 @@ const ExpertPortal = ({ currentUser }) => {
                                                             <div className="absolute top-4 right-5 text-[9px] font-mono text-zinc-400 dark:text-zinc-600 uppercase select-none font-bold">
                                                                 Page {page.page_number}
                                                             </div>
-                                                            <div className="space-y-4 text-zinc-800 dark:text-gray-250 text-sm leading-relaxed text-left font-serif pt-4">
+                                                            <div className="space-y-4 text-zinc-800 dark:text-gray-255 text-sm leading-relaxed text-left font-serif pt-4">
                                                                 {page.paragraphs.map((p, idx) => (
                                                                     <p key={idx}>
                                                                         {renderParagraphWithHighlights(p, paperContent.annotations, page.page_number)}
@@ -453,7 +453,7 @@ const ExpertPortal = ({ currentUser }) => {
                                     </div>
 
                                     {/* Right Pane - Annotations & Assessment */}
-                                    <div className="lg:col-span-5 flex flex-col h-[78vh] overflow-y-auto space-y-6">
+                                    <div className="lg:col-span-5 flex flex-col h-auto lg:h-[78vh] overflow-y-auto space-y-6">
                                         
                                         {/* New Annotation Form */}
                                         {selectedText && (

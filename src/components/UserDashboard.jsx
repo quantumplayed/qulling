@@ -105,10 +105,53 @@ const UserDashboard = ({ currentUser }) => {
                             <h2 className="text-lg font-bold uppercase tracking-tight text-zinc-900 dark:text-white">Audit Request History</h2>
                         </div>
 
-                        <div className="overflow-x-auto">
+                        {/* Mobile View Card List */}
+                        <div className="block md:hidden space-y-4">
+                            {pitches.map(pitch => (
+                                <div key={pitch.id} className="px-7 py-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-zinc-950/20 text-left">
+                                    <div className="mb-3">
+                                        <div className="font-bold text-zinc-800 dark:text-gray-250 text-sm leading-snug">{pitch.title}</div>
+                                        <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1 italic break-words">"{pitch.pdf_url || 'No document text attached'}"</p>
+                                    </div>
+                                    <div className="flex items-center justify-between border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
+                                        <div className="flex items-center gap-1.5 font-mono text-zinc-500 dark:text-gray-500">
+                                            <Calendar size={13} />
+                                            {new Date(pitch.created_at).toLocaleDateString()}
+                                        </div>
+                                        <span className={`text-[9px] font-bold px-2.5 py-1 rounded-full uppercase font-mono tracking-tighter ${
+                                            pitch.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                            pitch.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                            pitch.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
+                                            'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
+                                        }`}>
+                                            {pitch.status === 'completed' ? 'Certified' :
+                                             pitch.status === 'reviewing' ? 'Under Review' :
+                                             pitch.status === 'assigned' ? 'Assigned' : 'Pending Review'}
+                                        </span>
+                                    </div>
+                                    <div className="pt-2">
+                                        {pitch.status === 'completed' ? (
+                                            <button
+                                                onClick={() => setSelectedAudit(pitch)}
+                                                className="w-full supabase-btn-green py-2 rounded-xl text-[10px] uppercase tracking-widest inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                                            >
+                                                <ShieldCheck size={12} /> View Certificate
+                                            </button>
+                                        ) : (
+                                            <div className="text-center py-2 text-[9px] font-mono text-zinc-500 dark:text-gray-500 uppercase tracking-wider bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 rounded-xl">
+                                                Awaiting Audit
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Desktop View Table */}
+                        <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="border-b border-zinc-200 dark:border-white/10 text-[9px] uppercase text-zinc-500 dark:text-gray-500 tracking-widest font-mono">
+                                    <tr className="border-b border-zinc-200 dark:border-white/10 text-[9px] uppercase text-zinc-500 dark:text-gray-550 tracking-widest font-mono">
                                         <th className="pb-4 font-black">Startup Pitch / Claim</th>
                                         <th className="pb-4 font-black">Date Requested</th>
                                         <th className="pb-4 font-black">Verification Status</th>
@@ -119,7 +162,7 @@ const UserDashboard = ({ currentUser }) => {
                                     {pitches.map(pitch => (
                                         <tr key={pitch.id} className="border-b border-zinc-100 dark:border-white/5 hover:bg-zinc-50/50 dark:hover:bg-white/[0.01] transition-all group">
                                             <td className="py-5 pr-6 max-w-md">
-                                                <div className="font-bold text-zinc-800 dark:text-gray-200 line-clamp-1">{pitch.title}</div>
+                                                <div className="font-bold text-zinc-800 dark:text-gray-250 line-clamp-1">{pitch.title}</div>
                                                 <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1 line-clamp-1 italic">"{pitch.pdf_url || 'No document text attached'}"</p>
                                             </td>
                                             <td className="py-5 font-mono text-xs text-zinc-500 dark:text-gray-500 whitespace-nowrap">
@@ -149,7 +192,7 @@ const UserDashboard = ({ currentUser }) => {
                                                         <ShieldCheck size={12} /> View Certificate
                                                     </button>
                                                 ) : (
-                                                    <span className="text-[9px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-wider bg-zinc-100 dark:bg-white/5 border border-zinc-200/50 dark:border-white/5 px-2 py-1 rounded">
+                                                    <span className="text-[9px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-wider bg-zinc-100 dark:bg-white/5 border border-zinc-200/55 dark:border-white/5 px-2 py-1 rounded">
                                                         Awaiting Audit
                                                     </span>
                                                 )}

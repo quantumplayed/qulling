@@ -242,12 +242,12 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[500] overflow-y-auto flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
-        className="modal-card w-full max-w-lg"
+        className="modal-card w-full max-w-lg max-h-[90vh] sm:max-h-none overflow-y-auto"
       >
         {/* Close */}
         <button

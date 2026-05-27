@@ -88,12 +88,12 @@ const ProfileModal = ({ isOpen, onClose, currentUser, onProfileUpdated }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[500] overflow-y-auto flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
-        className="modal-card w-full max-w-lg animate-in zoom-in-95 duration-200"
+        className="modal-card w-full max-w-lg max-h-[90vh] sm:max-h-none overflow-y-auto animate-in zoom-in-95 duration-200"
       >
         <button onClick={onClose} className="modal-close-btn">
           <X size={18} />

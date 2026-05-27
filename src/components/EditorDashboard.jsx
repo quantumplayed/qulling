@@ -235,9 +235,9 @@ const EditorDashboard = ({ currentUser }) => {
         <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-white py-20 px-8 sm:px-16 font-sans relative overflow-hidden">
             {/* Background neon glows */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.05)_0%,transparent_70%)] pointer-events-none" />
-            <div className="absolute top-10 left-10 w-[500px] h-[500px] bg-cyan-500/5 dark:bg-cyan-955/20 blur-[120px] rounded-full pointer-events-none" />
+            <div className="absolute top-10 left-10 w-[500px] h-[500px] bg-cyan-500/5 dark:bg-cyan-950/20 blur-[120px] rounded-full pointer-events-none" />
 
-            <div className="container mx-auto max-w-7xl relative z-10">
+            <div className="dashboard-container relative z-10">
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-20 border-b border-zinc-200 dark:border-white/10 pb-12">
                     <div>
                         <div className="flex items-center gap-3">
@@ -251,56 +251,123 @@ const EditorDashboard = ({ currentUser }) => {
                     <div className="flex gap-4">
                         {/* PDF Upload button relocated inside Research Literature section header */}
                     </div>
-                </header>                {/* Stats Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-10 mb-20">
-                    <div className="p-10 border border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] rounded-3xl shadow-sm">
-                        <div className="text-zinc-500 dark:text-gray-400 text-[10px] uppercase font-bold tracking-[0.2em] mb-2 font-mono">Knowledge Papers</div>
-                        <div className="text-3xl font-black text-zinc-900 dark:text-white">{stats.paper_count} <span className="text-[10px] text-zinc-400 dark:text-gray-600 font-mono uppercase font-normal">Files</span></div>
-                    </div>
-                    <div className="p-10 border border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] rounded-3xl shadow-sm">
-                        <div className="text-zinc-500 dark:text-gray-400 text-[10px] uppercase font-bold tracking-[0.2em] mb-2 font-mono">Vector Chunks</div>
-                        <div className="text-3xl font-black text-cyan-650 dark:text-cyan-400">{stats.chunk_count} <span className="text-[10px] text-zinc-400 dark:text-gray-600 font-mono uppercase font-normal">Segments</span></div>
-                    </div>
-                    <div className="p-10 border border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] rounded-3xl shadow-sm">
-                        <div className="text-emerald-600 dark:text-emerald-500 text-[10px] uppercase font-bold tracking-[0.2em] mb-2 font-mono">Startup Audits</div>
-                        <div className="text-3xl font-black text-emerald-555 dark:text-emerald-400">{stats.pitch_count || 0} <span className="text-[10px] text-zinc-400 dark:text-gray-600 font-mono uppercase font-normal">Requests</span></div>
-                    </div>
-                    <div className="p-10 border border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] rounded-3xl shadow-sm">
-                        <div className="text-green-605 dark:text-green-500 text-[10px] uppercase font-bold tracking-[0.2em] mb-2 font-mono">Evaluations Done</div>
-                        <div className="text-3xl font-black text-green-600 dark:text-green-400">{countStatus('completed')}</div>
-                    </div>
-                    <div className="p-10 border border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] rounded-3xl shadow-sm col-span-2 md:col-span-1">
-                        <div className="text-purple-600 dark:text-purple-500 text-[10px] uppercase font-bold tracking-[0.2em] mb-2 font-mono">Expert Reviewers</div>
-                        <div className="text-3xl font-black text-purple-600 dark:text-purple-400">{reviewers.length}</div>
-                    </div>
-                </div>
-
-                {/* Tab Switcher */}
-                <div className="flex flex-wrap gap-6 mb-20 bg-zinc-100/60 dark:bg-zinc-950/60 p-4 rounded-[24px] w-fit border border-zinc-200 dark:border-white/10">
-                    <button
+                              </header>
+                <div className="admin-card-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {/* Card 1: Research Literature */}
+                    <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setActiveTab('papers')}
-                        className={`px-12 py-5 rounded-[16px] text-sm font-black uppercase tracking-[0.2em] transition-all cursor-pointer ${activeTab === 'papers' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25' : 'text-zinc-500 hover:text-zinc-955 dark:text-gray-400 dark:hover:text-white'}`}
+                        className={`admin-stat-card w-full group px-8 pt-14 pb-16 sm:px-9 sm:pt-16 sm:pb-20 xl:px-10 xl:pt-20 xl:pb-24 border rounded-3xl transition-all text-center flex flex-col items-center justify-between cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-cyan-500/5 duration-300 outline-none overflow-hidden ${
+                            activeTab === 'papers'
+                                ? 'border-cyan-500 bg-cyan-50/20 dark:bg-cyan-955/15 shadow-md shadow-cyan-500/5 ring-1 ring-cyan-500/20'
+                                : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] hover:border-cyan-500/30'
+                        }`}
                     >
-                        Research Literature
-                    </button>
-                    <button
+                        <div className="flex flex-col items-center w-full">
+                            <div className={`p-2.5 rounded-xl transition-all ${activeTab === 'papers' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-zinc-100 dark:bg-white/5 text-zinc-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10'}`}>
+                                <ClipboardList className="transition-colors shrink-0" size={18} />
+                            </div>
+                            <span className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm uppercase font-bold tracking-[0.12em] font-mono mt-4 pt-3 text-center w-full break-words">
+                                Research Literature
+                            </span>
+                        </div>
+                        <div className="mt-8 w-full flex flex-col items-center text-center">
+                            <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white truncate">
+                                {stats.paper_count} <span className="text-[10px] text-zinc-455 dark:text-zinc-500 font-mono uppercase font-normal">Files</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono uppercase mt-1.5 break-words whitespace-normal leading-relaxed">
+                                {stats.chunk_count} Vector Segments
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Card 2: Startup Audits */}
+                    <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setActiveTab('pitches')}
-                        className={`px-12 py-5 rounded-[16px] text-sm font-black uppercase tracking-[0.2em] transition-all cursor-pointer ${activeTab === 'pitches' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25' : 'text-zinc-500 hover:text-zinc-955 dark:text-gray-400 dark:hover:text-white'}`}
+                        className={`admin-stat-card w-full group px-8 pt-14 pb-16 sm:px-9 sm:pt-16 sm:pb-20 xl:px-10 xl:pt-20 xl:pb-24 border rounded-3xl transition-all text-center flex flex-col items-center justify-between cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-cyan-500/5 duration-300 outline-none overflow-hidden ${
+                            activeTab === 'pitches'
+                                ? 'border-cyan-500 bg-cyan-50/20 dark:bg-cyan-955/15 shadow-md shadow-cyan-500/5 ring-1 ring-cyan-500/20'
+                                : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] hover:border-cyan-500/30'
+                        }`}
                     >
-                        Startup Audit Pipelines
-                    </button>
-                    <button
+                        <div className="flex flex-col items-center w-full">
+                            <div className={`p-2.5 rounded-xl transition-all ${activeTab === 'pitches' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-zinc-100 dark:bg-white/5 text-zinc-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10'}`}>
+                                <Zap className="transition-colors shrink-0" size={18} />
+                            </div>
+                            <span className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm uppercase font-bold tracking-[0.12em] font-mono mt-4 pt-3 text-center w-full break-words">
+                                Startup Audits
+                            </span>
+                        </div>
+                        <div className="mt-8 w-full flex flex-col items-center text-center">
+                            <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white truncate">
+                                {stats.pitch_count || 0} <span className="text-[10px] text-zinc-455 dark:text-zinc-500 font-mono uppercase font-normal">Pitches</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono uppercase mt-1.5 break-words whitespace-normal leading-relaxed">
+                                {countStatus('completed')} Completed Reports
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Card 3: Expert Reviewers */}
+                    <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setActiveTab('stats')}
-                        className={`px-12 py-5 rounded-[16px] text-sm font-black uppercase tracking-[0.2em] transition-all cursor-pointer ${activeTab === 'stats' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25' : 'text-zinc-500 hover:text-zinc-955 dark:text-gray-400 dark:hover:text-white'}`}
+                        className={`admin-stat-card w-full group px-8 pt-14 pb-16 sm:px-9 sm:pt-16 sm:pb-20 xl:px-10 xl:pt-20 xl:pb-24 border rounded-3xl transition-all text-center flex flex-col items-center justify-between cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-cyan-500/5 duration-300 outline-none overflow-hidden ${
+                            activeTab === 'stats'
+                                ? 'border-cyan-500 bg-cyan-50/20 dark:bg-cyan-955/15 shadow-md shadow-cyan-500/5 ring-1 ring-cyan-500/20'
+                                : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] hover:border-cyan-500/30'
+                        }`}
                     >
-                        Active Reviewer Roster
-                    </button>
-                    <button
+                        <div className="flex flex-col items-center w-full">
+                            <div className={`p-2.5 rounded-xl transition-all ${activeTab === 'stats' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-zinc-100 dark:bg-white/5 text-zinc-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10'}`}>
+                                <Users className="transition-colors shrink-0" size={18} />
+                            </div>
+                            <span className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm uppercase font-bold tracking-[0.12em] font-mono mt-4 pt-3 text-center w-full break-words">
+                                Expert Reviewers
+                            </span>
+                        </div>
+                        <div className="mt-8 w-full flex flex-col items-center text-center">
+                            <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white truncate">
+                                {reviewers.length} <span className="text-[10px] text-zinc-455 dark:text-zinc-500 font-mono uppercase font-normal">Active</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono uppercase mt-1.5 break-words whitespace-normal leading-relaxed">
+                                Reviewer Roster List
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Card 4: User Directory */}
+                    <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setActiveTab('users')}
-                        className={`px-12 py-5 rounded-[16px] text-sm font-black uppercase tracking-[0.2em] transition-all cursor-pointer ${activeTab === 'users' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25' : 'text-zinc-500 hover:text-zinc-955 dark:text-gray-400 dark:hover:text-white'}`}
+                        className={`admin-stat-card w-full group px-8 pt-14 pb-16 sm:px-9 sm:pt-16 sm:pb-20 xl:px-10 xl:pt-20 xl:pb-24 border rounded-3xl transition-all text-center flex flex-col items-center justify-between cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-cyan-500/5 duration-300 outline-none overflow-hidden ${
+                            activeTab === 'users'
+                                ? 'border-cyan-500 bg-cyan-50/20 dark:bg-cyan-955/15 shadow-md shadow-cyan-500/5 ring-1 ring-cyan-500/20'
+                                : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] hover:border-cyan-500/30'
+                        }`}
                     >
-                        User Directory & Roles
-                    </button>
+                        <div className="flex flex-col items-center w-full">
+                            <div className={`p-2.5 rounded-xl transition-all ${activeTab === 'users' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-zinc-100 dark:bg-white/5 text-zinc-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10'}`}>
+                                <Shield className="transition-colors shrink-0" size={18} />
+                            </div>
+                            <span className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm uppercase font-bold tracking-[0.12em] font-mono mt-4 pt-3 text-center w-full break-words">
+                                User Directory
+                            </span>
+                        </div>
+                        <div className="mt-8 w-full flex flex-col items-center text-center">
+                            <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white truncate">
+                                {allProfiles.length} <span className="text-[10px] text-zinc-455 dark:text-zinc-500 font-mono uppercase font-normal">Profiles</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono uppercase mt-1.5 break-words whitespace-normal leading-relaxed">
+                                Manage Roles & Access
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {loading ? (
@@ -311,7 +378,7 @@ const EditorDashboard = ({ currentUser }) => {
                 ) : (
                     <>
                         {activeTab === 'papers' && (
-                            <div className="relative p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
+                            <div className="admin-section-container relative p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-10 border-b border-zinc-100 dark:border-white/5 pb-6 sm:pr-64">
                                     <div className="flex items-center gap-3">
                                         <ClipboardList className="text-cyan-600 dark:text-cyan-400" size={24} />
@@ -323,9 +390,81 @@ const EditorDashboard = ({ currentUser }) => {
                                     >
                                         <span className="text-lg font-black leading-none">+</span> Upload & Index PDF
                                     </button>
+                                </div>                                {/* Mobile View Card List */}
+                                <div className="block md:hidden space-y-4">
+                                    {filteredPapers.length === 0 ? (
+                                        <div className="py-12 text-center text-zinc-400 dark:text-gray-600 italic font-mono text-xs">No papers cataloged in database. Click 'Upload & Index PDF' to add one.</div>
+                                    ) : (
+                                        filteredPapers.map(paper => (
+                                            <div key={paper.id} className="px-7 py-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-zinc-900/20 text-left">
+                                                <div className="mb-3">
+                                                    <div className="font-bold text-zinc-800 dark:text-gray-250 text-sm leading-snug">{paper.title}</div>
+                                                    <div className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1">{paper.authors} ({paper.year})</div>
+                                                </div>
+                                                <div className="flex flex-col gap-2 border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Source:</span>
+                                                        <span className="font-mono text-zinc-500 dark:text-gray-300 uppercase">{paper.source}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Status:</span>
+                                                        <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase font-mono tracking-wider ${
+                                                            paper.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                                            paper.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                                            paper.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
+                                                            'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
+                                                        }`}>{paper.status}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center gap-4">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Reviewer:</span>
+                                                        {paper.status === 'completed' ? (
+                                                            <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                                                                <Award size={12} /> {reviewers.find(r => r.id === paper.assigned_to)?.name || reviewers.find(r => r.id === paper.assigned_to)?.email || paper.assigned_to}
+                                                            </div>
+                                                        ) : (
+                                                            <select
+                                                                value={selectedReviewerForPaper[paper.id] || ''}
+                                                                onChange={(e) => handleReviewerChange(paper.id, e.target.value)}
+                                                                disabled={assigningId === paper.id}
+                                                                className="bg-zinc-50 dark:bg-black border border-zinc-205 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-40 cursor-pointer"
+                                                            >
+                                                                <option value="">-- Choose --</option>
+                                                                {reviewers.map(r => (
+                                                                    <option key={r.id} value={r.id}>{r.name || r.email}</option>
+                                                                ))}
+                                                            </select>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="pt-2">
+                                                    {paper.status === 'completed' ? (
+                                                        <button
+                                                            onClick={async () => {
+                                                                const supabase = getSupabaseClient();
+                                                                const { data: annos } = await supabase.from('annotations').select('*').eq('paper_id', paper.id);
+                                                                setSelectedPaperDetails({ ...paper, annotations: annos || [] });
+                                                            }}
+                                                            className="w-full justify-center px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-250 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                                        >
+                                                            <Eye size={12} /> View Evaluation
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleAssignReviewer(paper.id)}
+                                                            disabled={!selectedReviewerForPaper[paper.id] || selectedReviewerForPaper[paper.id] === paper.assigned_to || assigningId === paper.id}
+                                                            className="w-full py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                                                        >
+                                                            {assigningId === paper.id ? <Loader className="animate-spin" size={12} /> : 'Confirm Assignment'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
 
-                                <div className="overflow-x-auto">
+                                {/* Desktop View Table */}
+                                <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="border-b border-zinc-200 dark:border-white/10 text-[10px] uppercase text-zinc-550 dark:text-gray-550 tracking-widest font-mono">
@@ -371,9 +510,9 @@ const EditorDashboard = ({ currentUser }) => {
                                                                     value={selectedReviewerForPaper[paper.id] || ''}
                                                                     onChange={(e) => handleReviewerChange(paper.id, e.target.value)}
                                                                     disabled={assigningId === paper.id}
-                                                                    className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-805 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-52 cursor-pointer font-medium"
+                                                                    className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-850 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none w-52 cursor-pointer font-medium"
                                                                 >
-                                                                    <option value="" className="bg-white dark:bg-zinc-955 text-zinc-900 dark:text-white font-bold">-- Choose Reviewer --</option>
+                                                                    <option value="" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">-- Choose Reviewer --</option>
                                                                     {reviewers.map(r => (
                                                                         <option key={r.id} value={r.id} className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white">{r.name || r.email}</option>
                                                                     ))}
@@ -388,7 +527,7 @@ const EditorDashboard = ({ currentUser }) => {
                                                                         const { data: annos } = await supabase.from('annotations').select('*').eq('paper_id', paper.id);
                                                                         setSelectedPaperDetails({ ...paper, annotations: annos || [] });
                                                                     }}
-                                                                    className="px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-250 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                                                    className="px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-255 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
                                                                 >
                                                                     <Eye size={12} /> View Evaluation
                                                                 </button>
@@ -410,17 +549,90 @@ const EditorDashboard = ({ currentUser }) => {
                                                 ))
                                             )}
                                         </tbody>
-                                    </table>
-                                </div>
+                                    </table></div>
                             </div>
                         )}                        {activeTab === 'pitches' && (
-                            <div className="p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
+                            <div className="admin-section-container p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
                                 <div className="flex items-center gap-3 mb-10 border-b border-zinc-100 dark:border-white/5 pb-6">
                                     <ClipboardList className="text-emerald-555 dark:text-emerald-400" size={24} />
                                     <h2 className="text-2xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white">Startup Audit Request Pipelines</h2>
                                 </div>
 
-                                <div className="overflow-x-auto">
+                                {/* Mobile View Card List */}
+                                <div className="block md:hidden space-y-4">
+                                    {filteredPitches.length === 0 ? (
+                                        <div className="py-12 text-center text-zinc-400 dark:text-gray-600 italic font-mono text-xs">No startup pitches submitted for audit.</div>
+                                    ) : (
+                                        filteredPitches.map(pitch => (
+                                            <div key={pitch.id} className="px-7 py-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-zinc-900/20 text-left">
+                                                <div className="mb-3">
+                                                    <div className="font-bold text-zinc-800 dark:text-gray-250 text-sm leading-snug">{pitch.title.replace('Audit Request: ', '')}</div>
+                                                    <div className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1.5 italic break-words">"{pitch.pdf_url}"</div>
+                                                </div>
+                                                <div className="flex flex-col gap-2 border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Submitted By:</span>
+                                                        <span className="font-mono text-zinc-550 dark:text-gray-300">@{pitch.authors}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Status:</span>
+                                                        <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase font-mono tracking-wider ${
+                                                            pitch.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                                            pitch.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                                            pitch.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
+                                                            'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
+                                                        }`}>{pitch.status}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center gap-4">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Reviewer:</span>
+                                                        {pitch.status === 'completed' ? (
+                                                            <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                                                                <Award size={12} /> {reviewers.find(r => r.id === pitch.assigned_to)?.name || reviewers.find(r => r.id === pitch.assigned_to)?.email || pitch.assigned_to}
+                                                            </div>
+                                                        ) : (
+                                                            <select
+                                                                value={selectedReviewerForPaper[pitch.id] || ''}
+                                                                onChange={(e) => handleReviewerChange(pitch.id, e.target.value)}
+                                                                disabled={assigningId === pitch.id}
+                                                                className="bg-zinc-50 dark:bg-black border border-zinc-205 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-40 cursor-pointer"
+                                                            >
+                                                                <option value="">-- Choose --</option>
+                                                                {reviewers.map(r => (
+                                                                    <option key={r.id} value={r.id}>{r.name || r.email}</option>
+                                                                ))}
+                                                            </select>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="pt-2">
+                                                    {pitch.status === 'completed' ? (
+                                                        <button
+                                                            onClick={async () => {
+                                                                const supabase = getSupabaseClient();
+                                                                const { data: annos } = await supabase.from('annotations').select('*').eq('paper_id', pitch.id);
+                                                                setSelectedPaperDetails({ ...pitch, annotations: annos || [] });
+                                                            }}
+                                                            className="w-full justify-center px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-250 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                                        >
+                                                            <Eye size={12} /> View Certificate
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleAssignReviewer(pitch.id)}
+                                                            disabled={!selectedReviewerForPaper[pitch.id] || selectedReviewerForPaper[pitch.id] === pitch.assigned_to || assigningId === pitch.id}
+                                                            className="w-full py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                                                        >
+                                                            {assigningId === pitch.id ? <Loader className="animate-spin" size={12} /> : 'Confirm Assignment'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                {/* Desktop View Table */}
+                                <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="border-b border-zinc-200 dark:border-white/10 text-[10px] uppercase text-zinc-555 dark:text-gray-555 tracking-widest font-mono">
@@ -466,9 +678,9 @@ const EditorDashboard = ({ currentUser }) => {
                                                                     value={selectedReviewerForPaper[pitch.id] || ''}
                                                                     onChange={(e) => handleReviewerChange(pitch.id, e.target.value)}
                                                                     disabled={assigningId === pitch.id}
-                                                                    className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-805 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-52 cursor-pointer font-medium"
+                                                                    className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-805 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none w-52 cursor-pointer font-medium"
                                                                 >
-                                                                    <option value="" className="bg-white dark:bg-zinc-955 text-zinc-900 dark:text-white font-bold">-- Choose Reviewer --</option>
+                                                                    <option value="" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">-- Choose Reviewer --</option>
                                                                     {reviewers.map(r => (
                                                                         <option key={r.id} value={r.id} className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white">{r.name || r.email}</option>
                                                                     ))}
@@ -511,7 +723,7 @@ const EditorDashboard = ({ currentUser }) => {
                         )}
 
                         {activeTab === 'stats' && (
-                            <div className="p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
+                            <div className="admin-section-container p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
                                 <div className="flex items-center gap-3 mb-10 border-b border-zinc-100 dark:border-white/5 pb-6">
                                     <Users className="text-cyan-600 dark:text-cyan-400" size={24} />
                                     <h2 className="text-2xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white">Active Expert Reviewer Roster</h2>
@@ -550,13 +762,55 @@ const EditorDashboard = ({ currentUser }) => {
                                 </div>
                             </div>
                         )}                        {activeTab === 'users' && (
-                            <div className="p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
+                            <div className="admin-section-container p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
                                 <div className="flex items-center gap-3 mb-10 border-b border-zinc-100 dark:border-white/5 pb-6">
                                     <Users className="text-cyan-600 dark:text-cyan-400" size={24} />
                                     <h2 className="text-2xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white">User Directory & Roles</h2>
+                                </div>                                {/* Mobile View Card List */}
+                                <div className="block md:hidden space-y-4">
+                                    {allProfiles.length === 0 ? (
+                                        <div className="py-12 text-center text-zinc-400 dark:text-gray-600 italic font-mono text-xs">No users registered in database.</div>
+                                    ) : (
+                                        allProfiles.map(profile => (
+                                            <div key={profile.id} className="px-7 py-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-zinc-900/20 text-left">
+                                                <div className="mb-3">
+                                                    <div className="font-bold text-zinc-800 dark:text-gray-250 text-base">{profile.name || profile.email.split('@')[0]}</div>
+                                                    <div className="text-[11px] text-zinc-550 dark:text-gray-405 font-mono">{profile.email}</div>
+                                                </div>
+                                                <div className="flex flex-col gap-2 border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Affiliation:</span>
+                                                        <span className="text-zinc-555 dark:text-gray-300">{profile.affiliation || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Current Role:</span>
+                                                        <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase font-mono tracking-wider ${
+                                                            profile.role === 'admin' ? 'bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-500/20 text-cyan-600 dark:text-cyan-400' :
+                                                            profile.role === 'reviewer' ? 'bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20 text-purple-600 dark:text-purple-400' :
+                                                            'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                                                        }`}>{profile.role}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center gap-4">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Modify Role:</span>
+                                                        <select
+                                                            value={profile.role}
+                                                            disabled={updatingRoleId === profile.id}
+                                                            onChange={(e) => handleUpdateUserRole(profile.id, e.target.value)}
+                                                            className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-255 outline-none focus:border-cyan-500 transition-all cursor-pointer font-bold w-40"
+                                                        >
+                                                            <option value="user" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">User (Customer)</option>
+                                                            <option value="reviewer" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">Reviewer (Expert)</option>
+                                                            <option value="admin" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">Platform Admin</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
 
-                                <div className="overflow-x-auto">
+                                {/* Desktop View Table */}
+                                <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="border-b border-zinc-200 dark:border-white/10 text-[10px] uppercase text-zinc-555 dark:text-gray-555 tracking-widest font-mono">
@@ -600,9 +854,9 @@ const EditorDashboard = ({ currentUser }) => {
                                                                 onChange={(e) => handleUpdateUserRole(profile.id, e.target.value)}
                                                                 className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-800 dark:text-gray-255 outline-none focus:border-cyan-500 transition-all cursor-pointer font-bold"
                                                             >
-                                                                <option value="user" className="bg-white dark:bg-zinc-955 text-zinc-900 dark:text-white font-bold">User (Customer)</option>
-                                                                <option value="reviewer" className="bg-white dark:bg-zinc-955 text-zinc-900 dark:text-white font-bold">Reviewer (Expert)</option>
-                                                                <option value="admin" className="bg-white dark:bg-zinc-955 text-zinc-900 dark:text-white font-bold">Platform Admin</option>
+                                                                <option value="user" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">User (Customer)</option>
+                                                                <option value="reviewer" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">Reviewer (Expert)</option>
+                                                                <option value="admin" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">Platform Admin</option>
                                                             </select>
                                                         </td>
                                                     </tr>
@@ -728,9 +982,9 @@ const EditorDashboard = ({ currentUser }) => {
 
             {/* Paper Curation details popup */}
             {selectedPaperDetails && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
-                    <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-[32px] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
-                        <header className="p-8 border-b border-zinc-100 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-emerald-500/5 dark:from-emerald-955/20 to-transparent">
+                <div className="fixed inset-0 z-[200] overflow-y-auto flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
+                    <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
+                        <header className="p-4 sm:p-8 border-b border-zinc-100 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-emerald-500/5 dark:from-emerald-955/20 to-transparent">
                           <div>
                             <div className="flex items-center gap-2.5 mb-2">
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-wider font-mono">
