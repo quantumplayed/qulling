@@ -228,35 +228,86 @@ function App() {
     try {
       logMsg("Initializing feasibility assessment...");
       await new Promise(r => setTimeout(r, 400));
-      logMsg("Analyzing technical proposal...");
-      const vector = await embedText(pitch, apiKey);
 
-      logMsg(`Searching scientific publication database index...`);
-      const { data: chunkMatches, error: matchError } = await supabase.rpc(
-        'match_paper_chunks',
-        {
-          query_embedding: vector,
-          match_threshold: 0.1,
-          match_count: 3
-        }
-      );
+      let chunkMatches = [];
 
-      if (matchError) {
-        throw new Error(`Database lookup failed: ${matchError.message}`);
+      if (apiKey) {
+        logMsg("Analyzing technical proposal...");
+        const vector = await embedText(pitch, apiKey);
+
+        logMsg(`Searching scientific publication database index...`);
+        const { data: vectorMatches, error: matchError } = await supabase.rpc(
+          'match_paper_chunks',
+          {
+            query_embedding: vector,
+            match_threshold: 0.1,
+            match_count: 3
+          }
+        );
+
+        if (matchError) throw new Error(`Database lookup failed: ${matchError.message}`);
+        chunkMatches = vectorMatches || [];
+      } else {
+        logMsg("No Gemini key configured — skipping vector search, proceeding without retrieval context.");
       }
 
-      const retrievedDocs = chunkMatches ? chunkMatches.map(c => c.content) : [];
-      logMsg(`Search complete: Identified ${retrievedDocs.length} scientific references.`);
+      logMsg(`Search complete: Identified ${chunkMatches.length} scientific references.`);
 
-      if (retrievedDocs.length > 0 && chunkMatches[0].metadata) {
+      if (chunkMatches.length > 0 && chunkMatches[0].metadata) {
         logMsg(`Matching Publication: ${chunkMatches[0].metadata.title || 'Unknown'}`);
       }
 
+      const paperIds = chunkMatches.length > 0
+        ? [...new Set(chunkMatches.map(c => c.paper_id))]
+        : [];
+
+      // Fetch annotations for all matched papers
+      let allAnnotations = [];
+      if (paperIds.length > 0) {
+        const { data: annosData } = await supabase
+          .from('annotations')
+          .select('*')
+          .in('paper_id', paperIds);
+        allAnnotations = annosData || [];
+      }
+
+      // Fuzzy word-overlap matcher: returns annotations whose highlighted text
+      // shares >60% of its words with the chunk content
+      const matchAnnotationsToChunk = (chunkContent, paperAnnotations) => {
+        return paperAnnotations.filter(ann => {
+          if (!ann.text) return false;
+          const annWords = new Set(ann.text.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+          if (annWords.size === 0) return false;
+          const chunkLower = chunkContent.toLowerCase();
+          const matches = [...annWords].filter(w => chunkLower.includes(w));
+          return matches.length / annWords.size >= 0.6;
+        });
+      };
+
+      // Build enriched context: chunk text + any expert annotations that overlap it
+      const enrichedContext = chunkMatches.map(chunk => {
+        const paperAnnos = allAnnotations.filter(a => a.paper_id === chunk.paper_id);
+        const matched = matchAnnotationsToChunk(chunk.content, paperAnnos);
+        const title = chunk.metadata?.title || 'Unknown Paper';
+        const year = chunk.metadata?.year || '';
+
+        let entry = `[PAPER: "${title}" (${year})]\n${chunk.content}`;
+
+        if (matched.length > 0) {
+          const annotationBlocks = matched.map(ann =>
+            `  [EXPERT ANNOTATION]\n  Highlighted passage: "${ann.text}"\n  Reviewer comment: ${ann.comment}`
+          ).join('\n');
+          entry += `\n\n${annotationBlocks}`;
+          logMsg(`  └ Attached ${matched.length} expert annotation(s) to retrieved chunk.`);
+        }
+
+        return entry;
+      });
+
       logMsg("Submitting context to verification model...");
-      const analysis = await generateAnalysis(pitch, retrievedDocs, apiKey, modality);
+      const analysis = await generateAnalysis(pitch, enrichedContext, apiKey, modality);
       logMsg("Analysis completed. Finalizing evaluation reports...");
 
-      const paperIds = chunkMatches ? [...new Set(chunkMatches.map(c => c.paper_id))] : [];
       const references = [];
 
       if (paperIds.length > 0) {
@@ -265,14 +316,9 @@ function App() {
           .select('*')
           .in('id', paperIds);
 
-        const { data: annosData } = await supabase
-          .from('annotations')
-          .select('*')
-          .in('paper_id', paperIds);
-
         if (papersData) {
           papersData.forEach(p => {
-            const paperAnnos = annosData ? annosData.filter(a => a.paper_id === p.id) : [];
+            const paperAnnos = allAnnotations.filter(a => a.paper_id === p.id);
             references.push({
               id: p.id,
               title: p.title,

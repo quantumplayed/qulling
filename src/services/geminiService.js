@@ -35,7 +35,7 @@ export const generateAnalysis = async (pitch, context, apiKey, modality) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     
     const contextStr = context && context.length > 0
-        ? context.map(c => `- ${c}`).join('\n')
+        ? context.join('\n\n---\n\n')
         : "No context papers found.";
         
     const roleDescription = "You are a professional Deep Tech Scientific Due Diligence Analyst. Your goal is to provide a rigorous, objective, and evidence-based analysis of the user's technology proposal. First, evaluate engineering feasibility and physical viability, identifying any physics law violations, mathematical flaws, or state-of-the-art contradictions. Second, identify scaling bottlenecks and suggest alternative scientifically viable materials, methodologies, or research directions. Combine both critical engineering risks and constructive development paths.";
@@ -46,7 +46,10 @@ export const generateAnalysis = async (pitch, context, apiKey, modality) => {
     ${roleDescription}
     
     Analyze the following startup pitch for scientific feasibility and growth potential.
-    Use the provided CONTEXT (scientific papers) to ground your analysis, but also use your general knowledge.
+    Use the provided CONTEXT to ground your analysis. Each context block is a passage from a scientific paper.
+    Some blocks also contain [EXPERT ANNOTATION] sections — these are critique notes written by human domain experts
+    who have reviewed the paper. Treat these annotations as high-confidence domain signals: they represent expert
+    judgment about the significance or validity of a specific passage. Weight them accordingly in your assessment.
     
     CONTEXT:
     ${contextStr}

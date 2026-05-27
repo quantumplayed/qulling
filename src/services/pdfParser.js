@@ -71,10 +71,10 @@ export const chunkText = (text, size = 1000, overlap = 200) => {
     return chunks;
 };
 
-// Ingests PDF file: uploads to Storage, extracts text, generates embeddings, and saves to database
+// Ingests PDF file: uploads to Storage, extracts text, optionally generates embeddings, and saves to database
+// geminiApiKey is optional — if absent, chunks are stored without vector embeddings
 export const ingestPaper = async (file, title, authors, year, supabase, geminiApiKey, onProgress) => {
     if (!supabase) throw new Error("Supabase client is not configured.");
-    if (!geminiApiKey) throw new Error("Gemini API key is not configured.");
 
     const paperId = `doc_${Math.random().toString(36).substring(2, 10)}`;
     const fileExt = file.name.split('.').pop() || 'pdf';
@@ -129,22 +129,28 @@ export const ingestPaper = async (file, title, authors, year, supabase, geminiAp
 
         if (paperDbError) throw new Error(`Database error saving paper: ${paperDbError.message}`);
 
-        // 5. Generate embeddings and save to paper_chunks table
-        onProgress?.("Generating vector embeddings (Gemini API)...");
-        
+        // 5. Optionally generate embeddings and save to paper_chunks table
+        const hasEmbeddingKey = !!geminiApiKey;
+        if (hasEmbeddingKey) {
+            onProgress?.("Generating vector embeddings (Gemini API)...");
+        } else {
+            onProgress?.("Skipping embeddings (no Gemini key) — storing chunks as plain text...");
+        }
+
         const chunkInserts = [];
         for (let i = 0; i < chunks.length; i++) {
-            onProgress?.(`Embedding chunk ${i + 1}/${chunks.length}...`);
             const chunkTextContent = chunks[i];
-            
-            // Get vector embedding (768 dimensions)
+
+            // Get vector embedding (768 dimensions) if a key is available
             let vector = null;
-            try {
-                vector = await embedText(chunkTextContent, geminiApiKey);
-            } catch (err) {
-                console.error(`Failed to embed chunk ${i}:`, err);
-                // Continue or fail? Better to throw so user knows
-                throw new Error(`Embedding model call failed: ${err.message}`);
+            if (hasEmbeddingKey) {
+                onProgress?.(`Embedding chunk ${i + 1}/${chunks.length}...`);
+                try {
+                    vector = await embedText(chunkTextContent, geminiApiKey);
+                } catch (err) {
+                    console.error(`Failed to embed chunk ${i}:`, err);
+                    throw new Error(`Embedding model call failed: ${err.message}`);
+                }
             }
 
             chunkInserts.push({

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, LayoutDashboard, Users, Shield, Zap, Loader, ClipboardList, CheckCircle, Clock, AlertTriangle, Eye, Award, Upload, X, FileText } from 'lucide-react';
+import { ArrowLeft, LayoutDashboard, Users, Shield, Zap, Loader, ClipboardList, CheckCircle, Clock, AlertTriangle, Eye, Award, Upload, X, FileText, Link } from 'lucide-react';
 import { getSupabaseClient } from '../services/supabaseClient';
 import { getGeminiApiKey } from '../services/geminiService';
 import { ingestPaper } from '../services/pdfParser';
+import { fetchArxivMetadata, downloadArxivPdfFile } from '../services/arxivService';
 
 const EditorDashboard = ({ currentUser }) => {
     const [papers, setPapers] = useState([]);
@@ -18,12 +19,17 @@ const EditorDashboard = ({ currentUser }) => {
     
     // Upload Modal states
     const [showUploadModal, setShowUploadModal] = useState(false);
+    const [uploadMode, setUploadMode] = useState('file'); // 'file' | 'arxiv'
     const [file, setFile] = useState(null);
     const [title, setTitle] = useState('');
     const [authors, setAuthors] = useState('');
     const [year, setYear] = useState(new Date().getFullYear());
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState('');
+    const [arxivQuery, setArxivQuery] = useState('');
+    const [arxivFetching, setArxivFetching] = useState(false);
+    const [arxivError, setArxivError] = useState('');
+    const [arxivPreview, setArxivPreview] = useState(null); // { arxivId, title, authors, year, pdfUrl }
 
     useEffect(() => {
         fetchData();
@@ -184,15 +190,42 @@ const EditorDashboard = ({ currentUser }) => {
         }));
     };
 
+    const handleFetchArxiv = async () => {
+        if (!arxivQuery.trim()) return;
+        setArxivFetching(true);
+        setArxivError('');
+        setArxivPreview(null);
+        try {
+            const meta = await fetchArxivMetadata(arxivQuery.trim());
+            setArxivPreview(meta);
+            setTitle(meta.title);
+            setAuthors(meta.authors);
+            setYear(meta.year);
+        } catch (err) {
+            setArxivError(err.message || 'Failed to fetch arXiv metadata.');
+        } finally {
+            setArxivFetching(false);
+        }
+    };
+
     const handleUploadPaper = async (e) => {
         e.preventDefault();
-        if (!file) return;
 
         const supabase = getSupabaseClient();
         const geminiKey = getGeminiApiKey();
 
-        if (!supabase || !geminiKey) {
-            alert("System configuration missing. Please ensure Supabase URL/Key and Gemini API Key are set in settings.");
+        if (!supabase) {
+            alert("Supabase is not configured. Please set your Supabase URL and Anon Key in Settings.");
+            return;
+        }
+
+        // Validate inputs
+        if (uploadMode === 'file' && !file) {
+            alert('Please select a PDF file to upload.');
+            return;
+        }
+        if (uploadMode === 'arxiv' && !arxivPreview) {
+            alert('Please look up an arXiv paper first.');
             return;
         }
 
@@ -200,8 +233,15 @@ const EditorDashboard = ({ currentUser }) => {
         setUploadProgress('Initializing...');
 
         try {
+            let pdfFile = file;
+
+            if (uploadMode === 'arxiv') {
+                setUploadProgress('Downloading PDF from arXiv...');
+                pdfFile = await downloadArxivPdfFile(arxivPreview.pdfUrl, arxivPreview.arxivId);
+            }
+
             await ingestPaper(
-                file,
+                pdfFile,
                 title.trim(),
                 authors.trim(),
                 year,
@@ -210,10 +250,15 @@ const EditorDashboard = ({ currentUser }) => {
                 (progress) => setUploadProgress(progress)
             );
 
+            // Reset all form state
             setFile(null);
             setTitle('');
             setAuthors('');
             setYear(new Date().getFullYear());
+            setArxivQuery('');
+            setArxivPreview(null);
+            setArxivError('');
+            setUploadMode('file');
             setShowUploadModal(false);
             
             await fetchData();
@@ -878,7 +923,7 @@ const EditorDashboard = ({ currentUser }) => {
                         <header className="p-8 border-b border-zinc-100 dark:border-white/10 flex justify-between items-center bg-gradient-to-r from-cyan-500/5 dark:from-cyan-950/20 to-transparent">
                             <div className="flex items-center gap-2">
                                 <Upload className="text-cyan-500 dark:text-cyan-400" size={20} />
-                                <h3 className="text-lg font-black uppercase tracking-tight text-zinc-900 dark:text-white">Upload Research PDF</h3>
+                                <h3 className="text-lg font-black uppercase tracking-tight text-zinc-900 dark:text-white">Add Research Paper</h3>
                             </div>
                             <button 
                                 onClick={() => !uploading && setShowUploadModal(false)}
@@ -889,24 +934,93 @@ const EditorDashboard = ({ currentUser }) => {
                             </button>
                         </header>
 
+                        {/* Mode switcher tabs */}
+                        <div className="flex border-b border-zinc-100 dark:border-white/5">
+                            <button
+                                type="button"
+                                onClick={() => { setUploadMode('file'); setArxivPreview(null); setArxivError(''); }}
+                                disabled={uploading}
+                                className={`flex-1 flex items-center justify-center gap-2 py-4 text-[11px] font-black uppercase tracking-wider transition-all ${
+                                    uploadMode === 'file'
+                                        ? 'text-cyan-600 dark:text-cyan-400 border-b-2 border-cyan-500 bg-cyan-50/30 dark:bg-cyan-950/10'
+                                        : 'text-zinc-500 dark:text-gray-500 hover:text-zinc-800 dark:hover:text-gray-300'
+                                }`}
+                            >
+                                <FileText size={14} /> Local PDF
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setUploadMode('arxiv'); setFile(null); }}
+                                disabled={uploading}
+                                className={`flex-1 flex items-center justify-center gap-2 py-4 text-[11px] font-black uppercase tracking-wider transition-all ${
+                                    uploadMode === 'arxiv'
+                                        ? 'text-cyan-600 dark:text-cyan-400 border-b-2 border-cyan-500 bg-cyan-50/30 dark:bg-cyan-950/10'
+                                        : 'text-zinc-500 dark:text-gray-500 hover:text-zinc-800 dark:hover:text-gray-300'
+                                }`}
+                            >
+                                <Link size={14} /> arXiv Import
+                            </button>
+                        </div>
+
                         <form onSubmit={handleUploadPaper} className="p-8 space-y-6">
-                            <div className="space-y-2">
-                                <label className="block text-xs font-bold text-zinc-700 dark:text-gray-300 uppercase tracking-wider font-mono ml-1">PDF Document</label>
-                                <input
-                                    type="file"
-                                    accept="application/pdf"
-                                    required
-                                    onChange={(e) => {
-                                        const selected = e.target.files?.[0];
-                                        setFile(selected);
-                                        if (selected) {
-                                            setTitle(selected.name.replace('.pdf', '').replace(/_/g, ' '));
-                                        }
-                                    }}
-                                    disabled={uploading}
-                                    className="w-full text-xs text-zinc-550 dark:text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-wider file:bg-zinc-100 dark:file:bg-white/5 file:text-cyan-600 dark:file:text-cyan-400 file:cursor-pointer hover:file:bg-zinc-200 dark:hover:file:bg-white/10 cursor-pointer"
-                                />
-                            </div>
+                            {uploadMode === 'file' ? (
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-bold text-zinc-700 dark:text-gray-300 uppercase tracking-wider font-mono ml-1">PDF Document</label>
+                                    <input
+                                        type="file"
+                                        accept="application/pdf"
+                                        onChange={(e) => {
+                                            const selected = e.target.files?.[0];
+                                            setFile(selected);
+                                            if (selected) {
+                                                setTitle(selected.name.replace('.pdf', '').replace(/_/g, ' '));
+                                            }
+                                        }}
+                                        disabled={uploading}
+                                        className="w-full text-xs text-zinc-550 dark:text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-wider file:bg-zinc-100 dark:file:bg-white/5 file:text-cyan-600 dark:file:text-cyan-400 file:cursor-pointer hover:file:bg-zinc-200 dark:hover:file:bg-white/10 cursor-pointer"
+                                    />
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <label className="block text-xs font-bold text-zinc-700 dark:text-gray-300 uppercase tracking-wider font-mono ml-1">arXiv Identifier or URL</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={arxivQuery}
+                                            onChange={(e) => { setArxivQuery(e.target.value); setArxivError(''); setArxivPreview(null); }}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchArxiv(); } }}
+                                            disabled={uploading || arxivFetching}
+                                            placeholder="e.g. 2303.08774 or arxiv.org/abs/..."
+                                            className="flex-1 bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-700 outline-none focus:border-cyan-500 transition-all font-mono"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={handleFetchArxiv}
+                                            disabled={!arxivQuery.trim() || uploading || arxivFetching}
+                                            className="px-5 py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                                        >
+                                            {arxivFetching ? <Loader className="animate-spin" size={13} /> : 'Look Up'}
+                                        </button>
+                                    </div>
+
+                                    {arxivError && (
+                                        <div className="flex items-start gap-2 p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-500/20 rounded-xl">
+                                            <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" />
+                                            <p className="text-xs text-red-600 dark:text-red-400 font-mono">{arxivError}</p>
+                                        </div>
+                                    )}
+
+                                    {arxivPreview && (
+                                        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/20 rounded-xl space-y-1.5">
+                                            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 font-mono mb-2">
+                                                <CheckCircle size={12} /> Paper Found — arXiv:{arxivPreview.arxivId}
+                                            </div>
+                                            <p className="text-sm font-bold text-zinc-900 dark:text-white leading-snug">{arxivPreview.title}</p>
+                                            <p className="text-[11px] text-zinc-500 dark:text-gray-400 font-mono">{arxivPreview.authors} · {arxivPreview.year}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="space-y-2">
                                 <label className="block text-xs font-bold text-zinc-750 dark:text-gray-300 uppercase tracking-wider font-mono ml-1">Paper Title</label>
@@ -961,14 +1075,14 @@ const EditorDashboard = ({ currentUser }) => {
                             <div className="flex gap-4 pt-2">
                                 <button
                                     type="submit"
-                                    disabled={uploading || !file}
+                                    disabled={uploading || (uploadMode === 'file' ? !file : !arxivPreview)}
                                     className="flex-1 py-4 bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-black uppercase tracking-[0.2em] transition-all rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer"
                                 >
-                                    {uploading ? 'Processing Ingestion...' : 'Ingest & Index Abstract'}
+                                    {uploading ? 'Processing Ingestion...' : 'Ingest & Index Paper'}
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setShowUploadModal(false)}
+                                    onClick={() => { setShowUploadModal(false); setArxivQuery(''); setArxivPreview(null); setArxivError(''); setUploadMode('file'); }}
                                     disabled={uploading}
                                     className="px-6 py-4 border border-zinc-200 dark:border-white/10 hover:bg-zinc-150 dark:hover:bg-white/5 text-zinc-550 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white text-[11px] font-mono uppercase tracking-wider rounded-xl transition-all cursor-pointer"
                                 >
