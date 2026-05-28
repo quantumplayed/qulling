@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, LayoutDashboard, Users, Shield, Zap, Loader, ClipboardList, CheckCircle, Clock, AlertTriangle, Eye, Award, Upload, X, FileText, Link } from 'lucide-react';
+import { ArrowLeft, LayoutDashboard, Users, Shield, Zap, Loader, ClipboardList, CheckCircle, Clock, AlertTriangle, Eye, Award, Upload, X, FileText, Link, Trash2 } from 'lucide-react';
 import { getSupabaseClient } from '../services/supabaseClient';
 import { getGeminiApiKey } from '../services/geminiService';
 import { ingestPaper } from '../services/pdfParser';
@@ -188,6 +188,44 @@ const EditorDashboard = ({ currentUser }) => {
             ...prev,
             [paperId]: value
         }));
+    };
+
+    const handleDeletePaper = async (paperId) => {
+        if (!window.confirm("Are you sure you want to delete this paper? This will permanently delete the paper, all extracted text chunks, and all associated reviewer annotations. This action cannot be undone.")) {
+            return;
+        }
+
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            alert("Supabase client is not configured.");
+            return;
+        }
+
+        try {
+            // Delete raw PDF file from storage
+            const storagePath = `${paperId}.pdf`;
+            await supabase.storage
+                .from('pdfs')
+                .remove([storagePath]);
+
+            // Delete paper row from database (cascading deletes handle chunks/annotations)
+            const { error } = await supabase
+                .from('papers')
+                .delete()
+                .eq('id', paperId);
+
+            if (error) throw error;
+
+            // Refresh UI
+            setPapers(prev => prev.filter(p => p.id !== paperId));
+            if (typeof fetchStats === 'function') {
+                await fetchStats();
+            }
+            alert("Paper successfully deleted.");
+        } catch (err) {
+            console.error("Failed to delete paper:", err);
+            alert(`Delete failed: ${err.message || err}`);
+        }
     };
 
     const handleFetchArxiv = async () => {
@@ -442,9 +480,18 @@ const EditorDashboard = ({ currentUser }) => {
                                     ) : (
                                         filteredPapers.map(paper => (
                                             <div key={paper.id} className="px-7 py-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-zinc-900/20 text-left">
-                                                <div className="mb-3">
-                                                    <div className="font-bold text-zinc-800 dark:text-gray-250 text-sm leading-snug">{paper.title}</div>
-                                                    <div className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1">{paper.authors} ({paper.year})</div>
+                                                <div className="flex justify-between items-start gap-4 mb-3">
+                                                    <div className="flex-1">
+                                                        <div className="font-bold text-zinc-800 dark:text-gray-250 text-sm leading-snug">{paper.title}</div>
+                                                        <div className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1">{paper.authors} ({paper.year})</div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleDeletePaper(paper.id)}
+                                                        className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer flex-shrink-0"
+                                                        title="Delete Paper"
+                                                    >
+                                                        <Trash2 size={15} />
+                                                    </button>
                                                 </div>
                                                 <div className="flex flex-col gap-2 border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
                                                     <div className="flex justify-between items-center">
@@ -565,30 +612,39 @@ const EditorDashboard = ({ currentUser }) => {
                                                             )}
                                                         </td>
                                                         <td className="py-8 text-right">
-                                                            {paper.status === 'completed' ? (
+                                                            <div className="flex items-center justify-end gap-3">
+                                                                {paper.status === 'completed' ? (
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            const supabase = getSupabaseClient();
+                                                                            const { data: annos } = await supabase.from('annotations').select('*').eq('paper_id', paper.id);
+                                                                            setSelectedPaperDetails({ ...paper, annotations: annos || [] });
+                                                                        }}
+                                                                        className="px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-255 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                                                    >
+                                                                        <Eye size={12} /> View Evaluation
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        onClick={() => handleAssignReviewer(paper.id)}
+                                                                        disabled={!selectedReviewerForPaper[paper.id] || selectedReviewerForPaper[paper.id] === paper.assigned_to || assigningId === paper.id}
+                                                                        className="px-6 py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md shadow-cyan-900/10 flex items-center justify-center gap-1.5 cursor-pointer"
+                                                                    >
+                                                                        {assigningId === paper.id ? (
+                                                                            <Loader className="animate-spin" size={12} />
+                                                                        ) : (
+                                                                            'Confirm'
+                                                                        )}
+                                                                    </button>
+                                                                )}
                                                                 <button
-                                                                    onClick={async () => {
-                                                                        const supabase = getSupabaseClient();
-                                                                        const { data: annos } = await supabase.from('annotations').select('*').eq('paper_id', paper.id);
-                                                                        setSelectedPaperDetails({ ...paper, annotations: annos || [] });
-                                                                    }}
-                                                                    className="px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-255 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                                                    onClick={() => handleDeletePaper(paper.id)}
+                                                                    className="p-3 text-zinc-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer"
+                                                                    title="Delete Paper"
                                                                 >
-                                                                    <Eye size={12} /> View Evaluation
+                                                                    <Trash2 size={16} />
                                                                 </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleAssignReviewer(paper.id)}
-                                                                    disabled={!selectedReviewerForPaper[paper.id] || selectedReviewerForPaper[paper.id] === paper.assigned_to || assigningId === paper.id}
-                                                                    className="px-6 py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md shadow-cyan-900/10 flex items-center justify-center gap-1.5 ml-auto cursor-pointer"
-                                                                >
-                                                                    {assigningId === paper.id ? (
-                                                                        <Loader className="animate-spin" size={12} />
-                                                                    ) : (
-                                                                        'Confirm'
-                                                                    )}
-                                                                </button>
-                                                            )}
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))

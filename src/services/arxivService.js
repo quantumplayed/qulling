@@ -15,12 +15,12 @@ export const extractArxivId = (query) => {
     return match ? match[1] : query.trim();
 };
 
-// Helper to fetch using multiple CORS proxy fallbacks
-const fetchWithProxy = async (url) => {
+// Helper to fetch text/XML using multiple CORS proxy fallbacks
+const fetchTextWithProxy = async (url) => {
     const proxies = [
-        `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
         `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+        `https://corsproxy.io/?url=${encodeURIComponent(url)}`
     ];
 
     let lastError = null;
@@ -28,6 +28,34 @@ const fetchWithProxy = async (url) => {
         try {
             const response = await fetch(proxy);
             if (response.ok) {
+                return response;
+            }
+            lastError = new Error(`Proxy returned status ${response.status}`);
+        } catch (e) {
+            lastError = e;
+        }
+    }
+    throw lastError || new Error("All CORS proxies failed to connect.");
+};
+
+// Helper to fetch binary (PDF) using safe binary CORS proxy fallbacks
+const fetchBinaryWithProxy = async (url) => {
+    const proxies = [
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        url // Try direct last
+    ];
+
+    let lastError = null;
+    for (const proxy of proxies) {
+        try {
+            const response = await fetch(proxy);
+            if (response.ok) {
+                const contentType = response.headers.get("content-type") || "";
+                if (contentType.includes("text/html") || contentType.includes("text/plain")) {
+                    lastError = new Error(`Proxy returned HTML/text instead of binary PDF (${contentType})`);
+                    continue;
+                }
                 return response;
             }
             lastError = new Error(`Proxy returned status ${response.status}`);
@@ -48,7 +76,7 @@ export const fetchArxivMetadata = async (query) => {
     const apiUrl = `https://export.arxiv.org/api/query?id_list=${arxivId}`;
     
     try {
-        const response = await fetchWithProxy(apiUrl);
+        const response = await fetchTextWithProxy(apiUrl);
         const xmlText = await response.text();
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(xmlText, "text/xml");
@@ -88,7 +116,7 @@ export const fetchArxivMetadata = async (query) => {
 // Download PDF as a File Blob using CORS proxy
 export const downloadArxivPdfFile = async (pdfUrl, arxivId) => {
     try {
-        const response = await fetchWithProxy(pdfUrl);
+        const response = await fetchBinaryWithProxy(pdfUrl);
         const blob = await response.blob();
         return new File([blob], `${arxivId}.pdf`, { type: 'application/pdf' });
     } catch (err) {

@@ -127,6 +127,7 @@ function App() {
 
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
+    setIsAuthOpen(false);
     if (pendingPath) {
       navigate(pendingPath);
       setPendingPath(null);

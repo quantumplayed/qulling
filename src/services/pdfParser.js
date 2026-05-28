@@ -1,13 +1,25 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { embedText } from './geminiService';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
-// Dynamically set PDFJS worker to CDN to avoid complex Vite build configurations
-const pdfjsVersion = pdfjsLib.version || '4.2.67';
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsVersion}/pdf.worker.min.mjs`;
+// Set worker to Vite-bundled asset, falling back to a version-matching CDN link
+const pdfjsVersion = pdfjsLib.version || '5.7.284';
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`;
+
 
 // Extract page-by-page text from PDF file ArrayBuffer
 export const parsePdfPages = async (arrayBuffer) => {
     try {
+        // Validate magic bytes: PDF files must start with "%PDF-"
+        const headerBytes = new Uint8Array(arrayBuffer.slice(0, 5));
+        const header = String.fromCharCode(...headerBytes);
+        if (header !== "%PDF-") {
+            const sampleDecoder = new TextDecoder("utf-8");
+            const sampleText = sampleDecoder.decode(new Uint8Array(arrayBuffer.slice(0, 500)));
+            console.error("Expected PDF file, but received header:", header, "Sample content:", sampleText);
+            throw new Error("The file downloaded is not a valid PDF document. The CORS proxy may have returned an HTML block page or error screen.");
+        }
+
         const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         const pages = [];
@@ -16,12 +28,18 @@ export const parsePdfPages = async (arrayBuffer) => {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             
+            // Sanitize null characters (\u0000) which PostgreSQL does not support in text/jsonb fields
+            const cleanItems = textContent.items.map(item => ({
+                ...item,
+                str: (item.str || '').replace(/\u0000/g, '')
+            }));
+            
             // Simple reconstruction of lines
             let lastY = null;
             let paragraphs = [];
             let currentLine = "";
 
-            for (const item of textContent.items) {
+            for (const item of cleanItems) {
                 // If y coordinate changes significantly, treat as new paragraph/line
                 if (lastY !== null && Math.abs(item.transform[5] - lastY) > 12) {
                     if (currentLine.trim()) {
@@ -38,7 +56,7 @@ export const parsePdfPages = async (arrayBuffer) => {
             }
 
             // Fallback if formatting extraction returned empty list
-            const fullText = textContent.items.map(item => item.str).join(" ");
+            const fullText = cleanItems.map(item => item.str).join(" ");
             if (paragraphs.length === 0 && fullText.trim()) {
                 paragraphs = [fullText.trim()];
             }
@@ -115,12 +133,14 @@ export const ingestPaper = async (file, title, authors, year, supabase, geminiAp
 
         // 4. Save paper record in public.papers
         onProgress?.("Saving paper catalog record...");
+        const cleanTitle = (title || file.name.replace('.pdf', '')).replace(/\u0000/g, '');
+        const cleanAuthors = (authors || 'Unknown Author').replace(/\u0000/g, '');
         const { error: paperDbError } = await supabase
             .from('papers')
             .insert({
                 id: paperId,
-                title: title || file.name.replace('.pdf', ''),
-                authors: authors || 'Unknown Author',
+                title: cleanTitle,
+                authors: cleanAuthors,
                 year: parseInt(year) || new Date().getFullYear(),
                 source: 'upload',
                 pdf_url: publicUrl,
@@ -159,8 +179,8 @@ export const ingestPaper = async (file, title, authors, year, supabase, geminiAp
                 embedding: vector,
                 metadata: {
                     id: paperId,
-                    title: title || file.name,
-                    author: authors || 'Unknown Author',
+                    title: cleanTitle,
+                    author: cleanAuthors,
                     year: parseInt(year) || new Date().getFullYear(),
                     source: 'upload',
                     chunk_index: i

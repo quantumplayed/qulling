@@ -186,6 +186,73 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
         ]);
 
         if (signUpError) {
+          const isUserExists = signUpError.message?.toLowerCase().includes('already registered') || 
+                               signUpError.message?.toLowerCase().includes('already exists') || 
+                               signUpError.status === 400 ||
+                               signUpError.code === 'user_already_exists';
+
+          if (isUserExists) {
+            addDebugLog("User already registered. Performing automatic login fallback...");
+            const signInPromise = supabase.auth.signInWithPassword({
+              email: email.trim(),
+              password: password.trim(),
+            });
+
+            const { data: signInData, error: signInError } = await Promise.race([
+              signInPromise,
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Auto-login fallback timed out.')), 10000))
+            ]);
+
+            if (signInError) {
+              addDebugLog(`Auto-login fallback failed: ${signInError.message}`);
+              throw signInError;
+            }
+
+            if (signInData?.user) {
+              addDebugLog("Auto-login successful! Fetching profile...");
+              const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', signInData.user.id)
+                .maybeSingle();
+
+              if (profileError) throw profileError;
+
+              if (!profile) {
+                // Create profile if missing
+                const derivedName = email.trim().split('@')[0];
+                const { error: insertError } = await supabase
+                  .from('profiles')
+                  .insert({
+                    id: signInData.user.id,
+                    email: email.trim(),
+                    name: derivedName,
+                    role: 'user',
+                    affiliation: 'Member',
+                  });
+                if (insertError) throw insertError;
+
+                onAuthSuccess({
+                  id: signInData.user.id,
+                  email: email.trim(),
+                  role: 'user',
+                  name: derivedName,
+                  affiliation: 'Member',
+                });
+              } else {
+                onAuthSuccess({
+                  id: profile.id,
+                  email: profile.email,
+                  role: profile.role,
+                  name: profile.name,
+                  affiliation: profile.affiliation || '',
+                });
+              }
+              onClose();
+              return;
+            }
+          }
+          
           addDebugLog(`Signup request failed: ${signUpError.message}`);
           throw signUpError;
         }
@@ -345,17 +412,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
               </button>
             </form>
 
-            {debugLogs.length > 0 && (
-              <div className="mt-6 p-4 bg-zinc-50 dark:bg-black/60 border border-zinc-200 dark:border-white/10 rounded-xl text-[10px] font-mono text-zinc-600 dark:text-gray-400 space-y-1 max-h-32 overflow-y-auto text-left select-text">
-                <div className="font-bold uppercase tracking-wider text-[9px] text-[#3ecf8e] mb-1.5 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3ecf8e] animate-pulse" />
-                  Auth Diagnostics Log
-                </div>
-                {debugLogs.map((log, idx) => (
-                  <div key={idx} className="leading-relaxed border-b border-zinc-100/50 dark:border-white/5 pb-1 last:border-0">{log}</div>
-                ))}
-              </div>
-            )}
+
 
             {/* Toggle link */}
             <div className="mt-8 pt-7 border-t border-zinc-100 dark:border-white/5 text-center">

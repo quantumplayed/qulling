@@ -154,3 +154,52 @@ drop trigger if exists trg_papers_reviewed_count on public.papers;
 create trigger trg_papers_reviewed_count
   after update on public.papers
   for each row execute function increment_papers_reviewed_count();
+
+-- 11. Supabase Storage Setup & RLS Policies for 'pdfs' bucket
+-- Ensure bucket 'pdfs' is created
+insert into storage.buckets (id, name, public)
+values ('pdfs', 'pdfs', true)
+on conflict (id) do update set public = true;
+
+-- Enable RLS on storage.objects (normally enabled by default in Supabase)
+alter table storage.objects enable row level security;
+
+-- Drop existing policies if any to prevent duplicates
+drop policy if exists "Allow Public Select on pdfs" on storage.objects;
+drop policy if exists "Allow Authenticated Inserts on pdfs" on storage.objects;
+drop policy if exists "Allow Authenticated Updates on pdfs" on storage.objects;
+drop policy if exists "Allow Public Inserts on pdfs (Dev)" on storage.objects;
+drop policy if exists "Allow Public Updates on pdfs (Dev)" on storage.objects;
+
+-- Policy: Allow anyone (public) to view/download files
+create policy "Allow Public Select on pdfs" on storage.objects
+  for select using (bucket_id = 'pdfs');
+
+-- OPTION A: Secure (Allow ONLY logged-in users to upload/update)
+create policy "Allow Authenticated Inserts on pdfs" on storage.objects
+  for insert with check (bucket_id = 'pdfs' and auth.role() = 'authenticated');
+
+create policy "Allow Authenticated Updates on pdfs" on storage.objects
+  for update using (bucket_id = 'pdfs' and auth.role() = 'authenticated');
+
+-- OPTION B: Open (Allow anonymous uploads - use if uploads don't require sign-in)
+-- Uncomment these if you want to allow upload without logging in:
+-- create policy "Allow Public Inserts on pdfs (Dev)" on storage.objects
+--   for insert with check (bucket_id = 'pdfs');
+-- create policy "Allow Public Updates on pdfs (Dev)" on storage.objects
+--   for update using (bucket_id = 'pdfs');
+
+-- 12. Deletion Policies
+-- Allow admins to delete papers (cascading deletes handle chunks and annotations automatically)
+create policy "Allow admins to delete papers" on public.papers
+  for delete using (
+    exists (
+      select 1 from public.profiles where id = auth.uid() and role = 'admin'
+    )
+  );
+
+-- Allow authenticated users to delete files from pdfs storage bucket
+create policy "Allow Authenticated Deletes on pdfs" on storage.objects
+  for delete using (bucket_id = 'pdfs' and auth.role() = 'authenticated');
+
+
