@@ -10,7 +10,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
   const [error, setError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [debugLogs, setDebugLogs] = useState([]);
-  
+
   const modalRef = useRef(null);
   const logsRef = useRef([]);
 
@@ -83,10 +83,10 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
       addDebugLog('Missing Supabase URL or Anon Key. Please configure them in Settings.');
       throw new Error('Supabase configuration missing.');
     }
-    
+
     addDebugLog(`Config URL: "${url}"`);
     addDebugLog(`Config Key: ${key.length} chars (starts with ${key.substring(0, 8)})`);
-    
+
     if (!key.startsWith('eyJ') && !key.startsWith('sb_publishable_')) {
       const errorMsg = `Invalid Anon Key format. Supabase keys must be a JWT (eyJ) or 'sb_publishable_'. Your key starts with '${key.substring(0, 8)}'. Please check Project Settings -> API.`;
       addDebugLog(`Error: ${errorMsg}`);
@@ -106,10 +106,10 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
       addDebugLog('Testing direct connectivity to Supabase endpoint...');
       const cleanUrl = url.replace(/\/$/, '');
       const pingUrl = `${cleanUrl}/auth/v1/settings?apikey=${key}`;
-      
+
       try {
         const pingPromise = fetch(pingUrl, { method: 'GET', headers: { 'apikey': key } });
-        const pingTimeout = new Promise((_, reject) => 
+        const pingTimeout = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Direct connection request timed out (5s).')), 5000)
         );
         const pingResponse = await Promise.race([pingPromise, pingTimeout]);
@@ -154,7 +154,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
             addDebugLog(`Database profiles query failed: ${profileError.message}`);
             throw profileError;
           }
-          
+
           if (!profile) {
             addDebugLog('Error: Profile row missing from public.profiles table!');
             throw new Error('User profile not found. Please contact support.');
@@ -186,10 +186,10 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
         ]);
 
         if (signUpError) {
-          const isUserExists = signUpError.message?.toLowerCase().includes('already registered') || 
-                               signUpError.message?.toLowerCase().includes('already exists') || 
-                               signUpError.status === 400 ||
-                               signUpError.code === 'user_already_exists';
+          const isUserExists = signUpError.message?.toLowerCase().includes('already registered') ||
+            signUpError.message?.toLowerCase().includes('already exists') ||
+            signUpError.status === 400 ||
+            signUpError.code === 'user_already_exists';
 
           if (isUserExists) {
             addDebugLog("User already registered. Performing automatic login fallback...");
@@ -252,7 +252,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
               return;
             }
           }
-          
+
           addDebugLog(`Signup request failed: ${signUpError.message}`);
           throw signUpError;
         }
@@ -399,7 +399,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
               <button
                 type="submit"
                 disabled={loading}
-                className="modal-btn-primary w-full mt-3"
+                className="modal-btn-primary w-full mt-3!"
               >
                 {loading ? (
                   <Loader className="animate-spin" size={18} />
@@ -439,9 +439,7 @@ const AuthModal = ({ isOpen, onClose, onAuthSuccess }) => {
                   </button>
                 </p>
               )}
-              <p className="text-xs text-zinc-400 dark:text-gray-600 mt-3">
-                New accounts start with standard user access. An admin can update your role.
-              </p>
+
             </div>
           </div>
         )}

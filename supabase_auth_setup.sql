@@ -60,6 +60,7 @@ create table public.annotations (
   text text not null,
   comment text not null,
   page integer not null,
+  bounding_rects jsonb, -- coordinate rectangles for direct PDF highlighting overlay
   created_at timestamp with time zone default now()
 );
 

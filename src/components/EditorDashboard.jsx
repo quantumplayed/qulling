@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, LayoutDashboard, Users, Shield, Zap, Loader, ClipboardList, CheckCircle, Clock, AlertTriangle, Eye, Award, Upload, X, FileText, Link, Trash2 } from 'lucide-react';
+import { ArrowLeft, LayoutDashboard, Users, Shield, Zap, Loader, ClipboardList, CheckCircle, Clock, AlertTriangle, Eye, Award, Upload, X, FileText, Link, Trash2, Cpu } from 'lucide-react';
 import { getSupabaseClient } from '../services/supabaseClient';
 import { getGeminiApiKey } from '../services/geminiService';
 import { ingestPaper } from '../services/pdfParser';
@@ -11,11 +11,38 @@ const EditorDashboard = ({ currentUser }) => {
     const [allProfiles, setAllProfiles] = useState([]);
     const [updatingRoleId, setUpdatingRoleId] = useState(null);
     const [stats, setStats] = useState({ paper_count: 0, chunk_count: 0 });
-    const [activeTab, setActiveTab] = useState('papers'); // papers, pitches, stats, users
+    const [activeTab, setActiveTab] = useState('papers'); // papers, pitches, stats, users, skills
     const [loading, setLoading] = useState(true);
     const [assigningId, setAssigningId] = useState(null);
     const [selectedReviewerForPaper, setSelectedReviewerForPaper] = useState({});
     const [selectedPaperDetails, setSelectedPaperDetails] = useState(null);
+    
+    // AI Skills states
+    const [skills, setSkills] = useState([]);
+    const [selectedSkill, setSelectedSkill] = useState(null);
+    const [isSavingSkill, setIsSavingSkill] = useState(false);
+    const [skillId, setSkillId] = useState('');
+    const [skillTitle, setSkillTitle] = useState('');
+    const [skillContent, setSkillContent] = useState('');
+    const [skillIsActive, setSkillIsActive] = useState(true);
+    const [isNewSkill, setIsNewSkill] = useState(false);
+    
+    // Paper Reviews assignments list
+    const [paperReviews, setPaperReviews] = useState([]);
+
+    // Helpers for multi-reviewer compatibility
+    const getReviewsForPaper = (paper) => {
+        const reviews = paperReviews.filter(r => r.paper_id === paper.id);
+        if (reviews.length === 0 && paper.assigned_to) {
+            return [{
+                paper_id: paper.id,
+                reviewer_id: paper.assigned_to,
+                status: paper.status || 'assigned',
+                assessment: paper.assessment
+            }];
+        }
+        return reviews;
+    };
     
     // Upload Modal states
     const [showUploadModal, setShowUploadModal] = useState(false);
@@ -42,7 +69,9 @@ const EditorDashboard = ({ currentUser }) => {
                 fetchPapers(),
                 fetchReviewers(),
                 fetchStats(),
-                fetchAllProfiles()
+                fetchAllProfiles(),
+                fetchSkills(),
+                fetchPaperReviews()
             ]);
         } catch (error) {
             console.error("Failed to fetch dashboard data from Supabase:", error);
@@ -62,6 +91,167 @@ const EditorDashboard = ({ currentUser }) => {
 
         if (error) throw error;
         setAllProfiles(data || []);
+    };
+
+    const fetchSkills = async () => {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+        try {
+            const { data, error } = await supabase
+                .from('skills')
+                .select('*')
+                .order('id', { ascending: true });
+            
+            if (error) {
+                console.warn("Failed to fetch skills (table might not exist yet):", error.message);
+                setSkills([]);
+            } else {
+                setSkills(data || []);
+            }
+        } catch (err) {
+            console.error("Error reading skills table:", err);
+            setSkills([]);
+        }
+    };
+
+    const fetchPaperReviews = async () => {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+        try {
+            const { data, error } = await supabase
+                .from('paper_reviews')
+                .select('*');
+            
+            if (error) {
+                console.warn("Failed to fetch paper_reviews (table might not exist yet):", error.message);
+                setPaperReviews([]);
+            } else {
+                setPaperReviews(data || []);
+            }
+        } catch (err) {
+            console.error("Error reading paper_reviews table:", err);
+            setPaperReviews([]);
+        }
+    };
+
+    const handleSelectSkill = (skill) => {
+        if (!skill) {
+            setSelectedSkill(null);
+            setSkillId('');
+            setSkillTitle('');
+            setSkillContent('');
+            setSkillIsActive(true);
+            setIsNewSkill(false);
+        } else {
+            setSelectedSkill(skill);
+            setSkillId(skill.id);
+            setSkillTitle(skill.title);
+            setSkillContent(skill.content);
+            setSkillIsActive(skill.is_active);
+            setIsNewSkill(false);
+        }
+    };
+
+    const handleCreateNewSkill = () => {
+        setSelectedSkill({ id: '', title: '', content: '', is_active: true });
+        setSkillId('');
+        setSkillTitle('');
+        setSkillContent('');
+        setSkillIsActive(true);
+        setIsNewSkill(true);
+    };
+
+    const handleSaveSkill = async () => {
+        if (!skillId.trim() || !skillTitle.trim() || !skillContent.trim()) {
+            alert("All fields are required to save a skill.");
+            return;
+        }
+
+        const idRegex = /^[a-z0-9-]+$/;
+        if (!idRegex.test(skillId)) {
+            alert("Skill ID must contain only lowercase letters, numbers, and hyphens (e.g. 'technical-due-diligence').");
+            return;
+        }
+
+        setIsSavingSkill(true);
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            setIsSavingSkill(false);
+            return;
+        }
+
+        try {
+            const payload = {
+                id: skillId.trim(),
+                title: skillTitle.trim(),
+                content: skillContent.trim(),
+                is_active: skillIsActive,
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await supabase
+                .from('skills')
+                .upsert(payload);
+
+            if (error) throw error;
+
+            alert(`Skill '${skillTitle}' saved successfully.`);
+            await fetchSkills();
+            setIsNewSkill(false);
+            setSelectedSkill(payload);
+        } catch (err) {
+            console.error("Error saving skill:", err);
+            alert(`Database Error: ${err.message}. Make sure you run the migrations first.`);
+        } finally {
+            setIsSavingSkill(false);
+        }
+    };
+
+    const handleDeleteSkill = async (idToDelete) => {
+        if (!confirm(`Are you sure you want to delete the skill '${idToDelete}'? This cannot be undone.`)) {
+            return;
+        }
+
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
+        try {
+            const { error } = await supabase
+                .from('skills')
+                .delete()
+                .eq('id', idToDelete);
+
+            if (error) throw error;
+
+            alert("Skill deleted successfully.");
+            setSelectedSkill(null);
+            await fetchSkills();
+        } catch (err) {
+            console.error("Error deleting skill:", err);
+            alert(`Database Error: ${err.message}`);
+        }
+    };
+
+    const handleToggleSkillActive = async (skill, newActiveState) => {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
+        try {
+            const { error } = await supabase
+                .from('skills')
+                .update({ is_active: newActiveState })
+                .eq('id', skill.id);
+
+            if (error) throw error;
+
+            setSkills(prev => prev.map(s => s.id === skill.id ? { ...s, is_active: newActiveState } : s));
+            if (selectedSkill && selectedSkill.id === skill.id) {
+                setSkillIsActive(newActiveState);
+            }
+        } catch (err) {
+            console.error("Error toggling skill active status:", err);
+            alert(`Database Error: ${err.message}`);
+        }
     };
 
     const handleUpdateUserRole = async (userId, newRole) => {
@@ -163,18 +353,64 @@ const EditorDashboard = ({ currentUser }) => {
 
         setAssigningId(paperId);
         const supabase = getSupabaseClient();
+        if (!supabase) return;
         
         try {
-            const { error } = await supabase
-                .from('papers')
-                .update({ 
-                    assigned_to: reviewer,
-                    status: 'assigned' 
-                })
-                .eq('id', paperId);
+            // Check if reviewer is already assigned in paper_reviews
+            const { data: existing, error: checkError } = await supabase
+                .from('paper_reviews')
+                .select('*')
+                .eq('paper_id', paperId)
+                .eq('reviewer_id', reviewer)
+                .maybeSingle();
 
-            if (error) throw error;
-            await fetchPapers();
+            if (checkError && checkError.code !== '42P01') {
+                throw checkError;
+            }
+
+            if (existing) {
+                alert("This reviewer is already assigned to this paper.");
+                setAssigningId(null);
+                return;
+            }
+
+            // Attempt to insert assignment in paper_reviews
+            const { error: insertError } = await supabase
+                .from('paper_reviews')
+                .insert({
+                    paper_id: paperId,
+                    reviewer_id: reviewer,
+                    status: 'assigned'
+                });
+
+            if (insertError) {
+                if (insertError.code === '42P01') {
+                    // Fallback to legacy single reviewer assignment
+                    console.warn("paper_reviews table missing, falling back to legacy single assignee update...");
+                    const { error: legacyError } = await supabase
+                        .from('papers')
+                        .update({ 
+                            assigned_to: reviewer,
+                            status: 'assigned' 
+                        })
+                        .eq('id', paperId);
+                    if (legacyError) throw legacyError;
+                } else {
+                    throw insertError;
+                }
+            } else {
+                // Update master status
+                await supabase
+                    .from('papers')
+                    .update({ status: 'assigned' })
+                    .eq('id', paperId);
+            }
+
+            alert("Reviewer assigned successfully!");
+            await Promise.all([
+                fetchPapers(),
+                fetchPaperReviews()
+            ]);
         } catch (error) {
             console.error("Error assigning paper in Supabase:", error);
             alert("Database Error: Failed to save assignment.");
@@ -335,7 +571,7 @@ const EditorDashboard = ({ currentUser }) => {
                         {/* PDF Upload button relocated inside Research Literature section header */}
                     </div>
                               </header>
-                <div className="admin-card-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="admin-card-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
                     {/* Card 1: Research Literature */}
                     <div
                         role="button"
@@ -451,6 +687,35 @@ const EditorDashboard = ({ currentUser }) => {
                             </div>
                         </div>
                     </div>
+
+                    {/* Card 5: AI Skills */}
+                    <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setActiveTab('skills')}
+                        className={`admin-stat-card w-full group px-8 pt-14 pb-16 sm:px-9 sm:pt-16 sm:pb-20 xl:px-10 xl:pt-20 xl:pb-24 border rounded-3xl transition-all text-center flex flex-col items-center justify-between cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-cyan-500/5 duration-300 outline-none overflow-hidden ${
+                            activeTab === 'skills'
+                                ? 'border-cyan-500 bg-cyan-50/20 dark:bg-cyan-955/15 shadow-md shadow-cyan-500/5 ring-1 ring-cyan-500/20'
+                                : 'border-zinc-200 dark:border-white/5 bg-white dark:bg-[#0f1014] hover:border-cyan-500/30'
+                        }`}
+                    >
+                        <div className="flex flex-col items-center w-full">
+                            <div className={`p-2.5 rounded-xl transition-all ${activeTab === 'skills' ? 'bg-cyan-500/10 text-cyan-400' : 'bg-zinc-100 dark:bg-white/5 text-zinc-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10'}`}>
+                                <Cpu className="transition-colors shrink-0" size={18} />
+                            </div>
+                            <span className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm uppercase font-bold tracking-[0.12em] font-mono mt-4 pt-3 text-center w-full break-words">
+                                AI Skills
+                            </span>
+                        </div>
+                        <div className="mt-8 w-full flex flex-col items-center text-center">
+                            <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white truncate">
+                                {skills.length} <span className="text-[10px] text-zinc-455 dark:text-zinc-500 font-mono uppercase font-normal">Active Skills</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono uppercase mt-1.5 break-words whitespace-normal leading-relaxed">
+                                Manage LLM Prompts & Guidelines
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {loading ? (
@@ -495,58 +760,80 @@ const EditorDashboard = ({ currentUser }) => {
                                                 </div>
                                                 <div className="flex flex-col gap-2 border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
                                                     <div className="flex justify-between items-center">
-                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Source:</span>
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-550 uppercase text-[10px]">Source:</span>
                                                         <span className="font-mono text-zinc-500 dark:text-gray-300 uppercase">{paper.source}</span>
                                                     </div>
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Status:</span>
-                                                        <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase font-mono tracking-wider ${
-                                                            paper.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                                                            paper.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
-                                                            paper.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
-                                                            'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
-                                                        }`}>{paper.status}</span>
+                                                    <div className="flex flex-col gap-1.5 mt-1">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-550 uppercase text-[10px]">Reviewers & Statuses:</span>
+                                                        <div className="flex flex-wrap gap-2 mt-1">
+                                                            {getReviewsForPaper(paper).length === 0 ? (
+                                                                <span className="text-[10px] text-zinc-450 font-mono italic">No reviewers assigned</span>
+                                                            ) : (
+                                                                getReviewsForPaper(paper).map(r => {
+                                                                    const revProfile = reviewers.find(rev => rev.id === r.reviewer_id);
+                                                                    const revName = revProfile ? (revProfile.name || revProfile.email.split('@')[0]) : 'Unknown';
+                                                                    return (
+                                                                        <span key={r.reviewer_id} className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase font-mono tracking-wider border ${
+                                                                            r.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                                                            r.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                                                            'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                                                                        }`}>
+                                                                            {revName} ({r.status})
+                                                                        </span>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex justify-between items-center gap-4">
-                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Reviewer:</span>
-                                                        {paper.status === 'completed' ? (
-                                                            <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                                                                <Award size={12} /> {reviewers.find(r => r.id === paper.assigned_to)?.name || reviewers.find(r => r.id === paper.assigned_to)?.email || paper.assigned_to}
+                                                    {(() => {
+                                                        const assignedReviewerIds = getReviewsForPaper(paper).map(r => r.reviewer_id);
+                                                        const availableReviewers = reviewers.filter(r => !assignedReviewerIds.includes(r.id));
+                                                        return (
+                                                            <div className="flex flex-col gap-1.5 mt-2">
+                                                                <span className="font-mono text-zinc-400 dark:text-gray-550 uppercase text-[10px]">Assign Reviewer:</span>
+                                                                <div className="flex gap-2 items-center">
+                                                                    <select
+                                                                        value={selectedReviewerForPaper[paper.id] || ''}
+                                                                        onChange={(e) => handleReviewerChange(paper.id, e.target.value)}
+                                                                        disabled={assigningId === paper.id || availableReviewers.length === 0}
+                                                                        className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none flex-1 cursor-pointer"
+                                                                    >
+                                                                        {availableReviewers.length === 0 ? (
+                                                                            <option value="">All Reviewers Assigned</option>
+                                                                        ) : (
+                                                                            <>
+                                                                                <option value="">-- Choose Reviewer --</option>
+                                                                                {availableReviewers.map(r => (
+                                                                                    <option key={r.id} value={r.id}>{r.name || r.email}</option>
+                                                                                ))}
+                                                                            </>
+                                                                        )}
+                                                                    </select>
+                                                                    {availableReviewers.length > 0 && selectedReviewerForPaper[paper.id] && (
+                                                                        <button
+                                                                            onClick={() => handleAssignReviewer(paper.id)}
+                                                                            disabled={assigningId === paper.id}
+                                                                            className="px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+                                                                        >
+                                                                            Confirm
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                        ) : (
-                                                            <select
-                                                                value={selectedReviewerForPaper[paper.id] || ''}
-                                                                onChange={(e) => handleReviewerChange(paper.id, e.target.value)}
-                                                                disabled={assigningId === paper.id}
-                                                                className="bg-zinc-50 dark:bg-black border border-zinc-205 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-40 cursor-pointer"
-                                                            >
-                                                                <option value="">-- Choose --</option>
-                                                                {reviewers.map(r => (
-                                                                    <option key={r.id} value={r.id}>{r.name || r.email}</option>
-                                                                ))}
-                                                            </select>
-                                                        )}
-                                                    </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                                 <div className="pt-2">
-                                                    {paper.status === 'completed' ? (
+                                                    {getReviewsForPaper(paper).some(r => r.status === 'completed') && (
                                                         <button
                                                             onClick={async () => {
                                                                 const supabase = getSupabaseClient();
                                                                 const { data: annos } = await supabase.from('annotations').select('*').eq('paper_id', paper.id);
                                                                 setSelectedPaperDetails({ ...paper, annotations: annos || [] });
                                                             }}
-                                                            className="w-full justify-center px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-250 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                                            className="w-full justify-center px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-255 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
                                                         >
                                                             <Eye size={12} /> View Evaluation
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => handleAssignReviewer(paper.id)}
-                                                            disabled={!selectedReviewerForPaper[paper.id] || selectedReviewerForPaper[paper.id] === paper.assigned_to || assigningId === paper.id}
-                                                            className="w-full py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            {assigningId === paper.id ? <Loader className="animate-spin" size={12} /> : 'Confirm Assignment'}
                                                         </button>
                                                     )}
                                                 </div>
@@ -559,11 +846,11 @@ const EditorDashboard = ({ currentUser }) => {
                                 <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
-                                            <tr className="border-b border-zinc-200 dark:border-white/10 text-[10px] uppercase text-zinc-550 dark:text-gray-550 tracking-widest font-mono">
+                                            <tr className="border-b border-zinc-200 dark:border-white/10 text-[10px] uppercase text-zinc-555 dark:text-gray-555 tracking-widest font-mono">
                                                 <th className="pb-6 font-black">Paper Details</th>
                                                 <th className="pb-6 font-black">Source</th>
-                                                <th className="pb-6 font-black">Status</th>
-                                                <th className="pb-6 font-black">Assigned Reviewer</th>
+                                                <th className="pb-6 font-black">Reviewers & Statuses</th>
+                                                <th className="pb-6 font-black">Assign Reviewer</th>
                                                 <th className="pb-6 font-black text-right">Actions</th>
                                             </tr>
                                         </thead>
@@ -583,37 +870,65 @@ const EditorDashboard = ({ currentUser }) => {
                                                             {paper.source}
                                                         </td>
                                                         <td className="py-8">
-                                                            <span className={`text-[9px] font-black px-3 py-1.5 rounded-full uppercase font-mono tracking-wider ${
-                                                                paper.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                                                                paper.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
-                                                                paper.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
-                                                                'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
-                                                            }`}>
-                                                                {paper.status}
-                                                            </span>
+                                                            <div className="flex flex-wrap gap-2 max-w-xs">
+                                                                {getReviewsForPaper(paper).length === 0 ? (
+                                                                    <span className="text-xs text-zinc-400 font-mono italic">No reviewers assigned</span>
+                                                                ) : (
+                                                                    getReviewsForPaper(paper).map(r => {
+                                                                        const revProfile = reviewers.find(rev => rev.id === r.reviewer_id);
+                                                                        const revName = revProfile ? (revProfile.name || revProfile.email.split('@')[0]) : 'Unknown';
+                                                                        return (
+                                                                            <span key={r.reviewer_id} className={`text-[9px] font-black px-2.5 py-1 rounded-md uppercase font-mono tracking-wider border whitespace-nowrap ${
+                                                                                r.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                                                                r.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                                                                'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                                                                            }`}>
+                                                                                {revName} ({r.status})
+                                                                            </span>
+                                                                        );
+                                                                    })
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="py-8">
-                                                            {paper.status === 'completed' ? (
-                                                                <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                                                                    <Award size={14} /> {reviewers.find(r => r.id === paper.assigned_to)?.name || reviewers.find(r => r.id === paper.assigned_to)?.email || paper.assigned_to}
-                                                                </div>
-                                                            ) : (
-                                                                <select
-                                                                    value={selectedReviewerForPaper[paper.id] || ''}
-                                                                    onChange={(e) => handleReviewerChange(paper.id, e.target.value)}
-                                                                    disabled={assigningId === paper.id}
-                                                                    className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-850 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none w-52 cursor-pointer font-medium"
-                                                                >
-                                                                    <option value="" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">-- Choose Reviewer --</option>
-                                                                    {reviewers.map(r => (
-                                                                        <option key={r.id} value={r.id} className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white">{r.name || r.email}</option>
-                                                                    ))}
-                                                                </select>
-                                                            )}
+                                                            {(() => {
+                                                                const assignedReviewerIds = getReviewsForPaper(paper).map(r => r.reviewer_id);
+                                                                const availableReviewers = reviewers.filter(r => !assignedReviewerIds.includes(r.id));
+                                                                return (
+                                                                    <div className="flex gap-2 items-center animate-in fade-in duration-300">
+                                                                        <select
+                                                                            value={selectedReviewerForPaper[paper.id] || ''}
+                                                                            onChange={(e) => handleReviewerChange(paper.id, e.target.value)}
+                                                                            disabled={assigningId === paper.id || availableReviewers.length === 0}
+                                                                            className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-xs text-zinc-800 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-48 cursor-pointer font-medium"
+                                                                        >
+                                                                            {availableReviewers.length === 0 ? (
+                                                                                <option value="">All Reviewers Assigned</option>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <option value="">-- Choose --</option>
+                                                                                    {availableReviewers.map(r => (
+                                                                                        <option key={r.id} value={r.id}>{r.name || r.email}</option>
+                                                                                    ))}
+                                                                                </>
+                                                                            )}
+                                                                        </select>
+                                                                        {availableReviewers.length > 0 && selectedReviewerForPaper[paper.id] && (
+                                                                            <button
+                                                                                onClick={() => handleAssignReviewer(paper.id)}
+                                                                                disabled={assigningId === paper.id}
+                                                                                className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-black uppercase tracking-wider transition-all shadow-md"
+                                                                            >
+                                                                                {assigningId === paper.id ? <Loader className="animate-spin" size={10} /> : 'Confirm'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td className="py-8 text-right">
                                                             <div className="flex items-center justify-end gap-3">
-                                                                {paper.status === 'completed' ? (
+                                                                {getReviewsForPaper(paper).some(r => r.status === 'completed') && (
                                                                     <button
                                                                         onClick={async () => {
                                                                             const supabase = getSupabaseClient();
@@ -623,18 +938,6 @@ const EditorDashboard = ({ currentUser }) => {
                                                                         className="px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-255 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
                                                                     >
                                                                         <Eye size={12} /> View Evaluation
-                                                                    </button>
-                                                                ) : (
-                                                                    <button
-                                                                        onClick={() => handleAssignReviewer(paper.id)}
-                                                                        disabled={!selectedReviewerForPaper[paper.id] || selectedReviewerForPaper[paper.id] === paper.assigned_to || assigningId === paper.id}
-                                                                        className="px-6 py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md shadow-cyan-900/10 flex items-center justify-center gap-1.5 cursor-pointer"
-                                                                    >
-                                                                        {assigningId === paper.id ? (
-                                                                            <Loader className="animate-spin" size={12} />
-                                                                        ) : (
-                                                                            'Confirm'
-                                                                        )}
                                                                     </button>
                                                                 )}
                                                                 <button
@@ -672,41 +975,71 @@ const EditorDashboard = ({ currentUser }) => {
                                                 </div>
                                                 <div className="flex flex-col gap-2 border-t border-zinc-100 dark:border-white/5 pt-3 mb-3 text-xs">
                                                     <div className="flex justify-between items-center">
-                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Submitted By:</span>
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-550 uppercase text-[10px]">Submitted By:</span>
                                                         <span className="font-mono text-zinc-550 dark:text-gray-300">@{pitch.authors}</span>
                                                     </div>
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Status:</span>
-                                                        <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase font-mono tracking-wider ${
-                                                            pitch.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                                                            pitch.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
-                                                            pitch.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
-                                                            'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
-                                                        }`}>{pitch.status}</span>
+                                                    <div className="flex flex-col gap-1.5 mt-1">
+                                                        <span className="font-mono text-zinc-400 dark:text-gray-550 uppercase text-[10px]">Reviewers & Statuses:</span>
+                                                        <div className="flex flex-wrap gap-2 mt-1">
+                                                            {getReviewsForPaper(pitch).length === 0 ? (
+                                                                <span className="text-[10px] text-zinc-455 font-mono italic">No reviewers assigned</span>
+                                                            ) : (
+                                                                getReviewsForPaper(pitch).map(r => {
+                                                                    const revProfile = reviewers.find(rev => rev.id === r.reviewer_id);
+                                                                    const revName = revProfile ? (revProfile.name || revProfile.email.split('@')[0]) : 'Unknown';
+                                                                    return (
+                                                                        <span key={r.reviewer_id} className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase font-mono tracking-wider border ${
+                                                                            r.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                                                            r.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                                                            'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                                                                        }`}>
+                                                                            {revName} ({r.status})
+                                                                        </span>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex justify-between items-center gap-4">
-                                                        <span className="font-mono text-zinc-400 dark:text-gray-500 uppercase text-[10px]">Reviewer:</span>
-                                                        {pitch.status === 'completed' ? (
-                                                            <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                                                                <Award size={12} /> {reviewers.find(r => r.id === pitch.assigned_to)?.name || reviewers.find(r => r.id === pitch.assigned_to)?.email || pitch.assigned_to}
+                                                    {(() => {
+                                                        const assignedReviewerIds = getReviewsForPaper(pitch).map(r => r.reviewer_id);
+                                                        const availableReviewers = reviewers.filter(r => !assignedReviewerIds.includes(r.id));
+                                                        return (
+                                                            <div className="flex flex-col gap-1.5 mt-2">
+                                                                <span className="font-mono text-zinc-400 dark:text-gray-550 uppercase text-[10px]">Assign Reviewer:</span>
+                                                                <div className="flex gap-2 items-center">
+                                                                    <select
+                                                                        value={selectedReviewerForPaper[pitch.id] || ''}
+                                                                        onChange={(e) => handleReviewerChange(pitch.id, e.target.value)}
+                                                                        disabled={assigningId === pitch.id || availableReviewers.length === 0}
+                                                                        className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none flex-1 cursor-pointer"
+                                                                    >
+                                                                        {availableReviewers.length === 0 ? (
+                                                                            <option value="">All Reviewers Assigned</option>
+                                                                        ) : (
+                                                                            <>
+                                                                                <option value="">-- Choose Reviewer --</option>
+                                                                                {availableReviewers.map(r => (
+                                                                                    <option key={r.id} value={r.id}>{r.name || r.email}</option>
+                                                                                ))}
+                                                                            </>
+                                                                        )}
+                                                                    </select>
+                                                                    {availableReviewers.length > 0 && selectedReviewerForPaper[pitch.id] && (
+                                                                        <button
+                                                                            onClick={() => handleAssignReviewer(pitch.id)}
+                                                                            disabled={assigningId === pitch.id}
+                                                                            className="px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+                                                                        >
+                                                                            Confirm
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                        ) : (
-                                                            <select
-                                                                value={selectedReviewerForPaper[pitch.id] || ''}
-                                                                onChange={(e) => handleReviewerChange(pitch.id, e.target.value)}
-                                                                disabled={assigningId === pitch.id}
-                                                                className="bg-zinc-50 dark:bg-black border border-zinc-205 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-800 dark:text-gray-300 font-mono focus:border-cyan-500 outline-none w-40 cursor-pointer"
-                                                            >
-                                                                <option value="">-- Choose --</option>
-                                                                {reviewers.map(r => (
-                                                                    <option key={r.id} value={r.id}>{r.name || r.email}</option>
-                                                                ))}
-                                                            </select>
-                                                        )}
-                                                    </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                                 <div className="pt-2">
-                                                    {pitch.status === 'completed' ? (
+                                                    {getReviewsForPaper(pitch).some(r => r.status === 'completed') && (
                                                         <button
                                                             onClick={async () => {
                                                                 const supabase = getSupabaseClient();
@@ -716,14 +1049,6 @@ const EditorDashboard = ({ currentUser }) => {
                                                             className="w-full justify-center px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-250 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
                                                         >
                                                             <Eye size={12} /> View Certificate
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => handleAssignReviewer(pitch.id)}
-                                                            disabled={!selectedReviewerForPaper[pitch.id] || selectedReviewerForPaper[pitch.id] === pitch.assigned_to || assigningId === pitch.id}
-                                                            className="w-full py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            {assigningId === pitch.id ? <Loader className="animate-spin" size={12} /> : 'Confirm Assignment'}
                                                         </button>
                                                     )}
                                                 </div>
@@ -739,8 +1064,8 @@ const EditorDashboard = ({ currentUser }) => {
                                             <tr className="border-b border-zinc-200 dark:border-white/10 text-[10px] uppercase text-zinc-555 dark:text-gray-555 tracking-widest font-mono">
                                                 <th className="pb-6 font-black">Requested Audit Pitch</th>
                                                 <th className="pb-6 font-black">Submitted By</th>
-                                                <th className="pb-6 font-black">Status</th>
-                                                <th className="pb-6 font-black">Assigned Reviewer</th>
+                                                <th className="pb-6 font-black">Reviewers & Statuses</th>
+                                                <th className="pb-6 font-black">Assign Reviewer</th>
                                                 <th className="pb-6 font-black text-right">Actions</th>
                                             </tr>
                                         </thead>
@@ -756,40 +1081,68 @@ const EditorDashboard = ({ currentUser }) => {
                                                             <div className="font-bold text-zinc-800 dark:text-gray-250 line-clamp-1 text-base">{pitch.title.replace('Audit Request: ', '')}</div>
                                                             <div className="text-[11px] text-zinc-500 dark:text-gray-500 font-mono mt-1.5 line-clamp-1 italic">"{pitch.pdf_url}"</div>
                                                         </td>
-                                                        <td className="py-8 font-mono text-xs text-zinc-500 dark:text-gray-400">
+                                                        <td className="py-8 font-mono text-xs text-zinc-550 dark:text-gray-400">
                                                             @{pitch.authors}
                                                         </td>
                                                         <td className="py-8">
-                                                            <span className={`text-[9px] font-black px-3 py-1.5 rounded-full uppercase font-mono tracking-wider ${
-                                                                pitch.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                                                                pitch.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
-                                                                pitch.status === 'assigned' ? 'bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 text-yellow-605 dark:text-yellow-400' :
-                                                                'bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-gray-400'
-                                                            }`}>
-                                                                {pitch.status}
-                                                            </span>
+                                                            <div className="flex flex-wrap gap-2 max-w-xs">
+                                                                {getReviewsForPaper(pitch).length === 0 ? (
+                                                                    <span className="text-xs text-zinc-400 font-mono italic">No reviewers assigned</span>
+                                                                ) : (
+                                                                    getReviewsForPaper(pitch).map(r => {
+                                                                        const revProfile = reviewers.find(rev => rev.id === r.reviewer_id);
+                                                                        const revName = revProfile ? (revProfile.name || revProfile.email.split('@')[0]) : 'Unknown';
+                                                                        return (
+                                                                            <span key={r.reviewer_id} className={`text-[9px] font-black px-2.5 py-1 rounded-md uppercase font-mono tracking-wider border whitespace-nowrap ${
+                                                                                r.status === 'completed' ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                                                                                r.status === 'reviewing' ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' :
+                                                                                'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                                                                            }`}>
+                                                                                {revName} ({r.status})
+                                                                            </span>
+                                                                        );
+                                                                    })
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="py-8">
-                                                            {pitch.status === 'completed' ? (
-                                                                <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                                                                    <Award size={14} /> {reviewers.find(r => r.id === pitch.assigned_to)?.name || reviewers.find(r => r.id === pitch.assigned_to)?.email || pitch.assigned_to}
-                                                                </div>
-                                                            ) : (
-                                                                <select
-                                                                    value={selectedReviewerForPaper[pitch.id] || ''}
-                                                                    onChange={(e) => handleReviewerChange(pitch.id, e.target.value)}
-                                                                    disabled={assigningId === pitch.id}
-                                                                    className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-xs text-zinc-805 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none w-52 cursor-pointer font-medium"
-                                                                >
-                                                                    <option value="" className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold">-- Choose Reviewer --</option>
-                                                                    {reviewers.map(r => (
-                                                                        <option key={r.id} value={r.id} className="bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white">{r.name || r.email}</option>
-                                                                    ))}
-                                                                </select>
-                                                            )}
+                                                            {(() => {
+                                                                const assignedReviewerIds = getReviewsForPaper(pitch).map(r => r.reviewer_id);
+                                                                const availableReviewers = reviewers.filter(r => !assignedReviewerIds.includes(r.id));
+                                                                return (
+                                                                    <div className="flex gap-2 items-center animate-in fade-in duration-300">
+                                                                        <select
+                                                                            value={selectedReviewerForPaper[pitch.id] || ''}
+                                                                            onChange={(e) => handleReviewerChange(pitch.id, e.target.value)}
+                                                                            disabled={assigningId === pitch.id || availableReviewers.length === 0}
+                                                                            className="bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-xs text-zinc-850 dark:text-gray-305 font-mono focus:border-cyan-500 outline-none w-48 cursor-pointer font-medium"
+                                                                        >
+                                                                            {availableReviewers.length === 0 ? (
+                                                                                <option value="">All Reviewers Assigned</option>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <option value="">-- Choose --</option>
+                                                                                    {availableReviewers.map(r => (
+                                                                                        <option key={r.id} value={r.id}>{r.name || r.email}</option>
+                                                                                    ))}
+                                                                                </>
+                                                                            )}
+                                                                        </select>
+                                                                        {availableReviewers.length > 0 && selectedReviewerForPaper[pitch.id] && (
+                                                                            <button
+                                                                                onClick={() => handleAssignReviewer(pitch.id)}
+                                                                                disabled={assigningId === pitch.id}
+                                                                                className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-black uppercase tracking-wider transition-all shadow-md"
+                                                                            >
+                                                                                {assigningId === pitch.id ? <Loader className="animate-spin" size={10} /> : 'Confirm'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td className="py-8 text-right">
-                                                            {pitch.status === 'completed' ? (
+                                                            {getReviewsForPaper(pitch).some(r => r.status === 'completed') && (
                                                                 <button
                                                                     onClick={async () => {
                                                                         const supabase = getSupabaseClient();
@@ -799,18 +1152,6 @@ const EditorDashboard = ({ currentUser }) => {
                                                                     className="px-5 py-3 rounded-xl bg-emerald-50 dark:bg-green-500/10 border border-emerald-250 dark:border-green-500/30 hover:bg-emerald-100 dark:hover:bg-green-500/20 text-emerald-700 dark:text-green-400 text-[11px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
                                                                 >
                                                                     <Eye size={12} /> View Certificate
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleAssignReviewer(pitch.id)}
-                                                                    disabled={!selectedReviewerForPaper[pitch.id] || selectedReviewerForPaper[pitch.id] === pitch.assigned_to || assigningId === pitch.id}
-                                                                    className="px-6 py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-md shadow-cyan-900/10 flex items-center justify-center gap-1.5 ml-auto cursor-pointer"
-                                                                >
-                                                                    {assigningId === pitch.id ? (
-                                                                        <Loader className="animate-spin" size={12} />
-                                                                    ) : (
-                                                                        'Confirm'
-                                                                    )}
                                                                 </button>
                                                             )}
                                                         </td>
@@ -848,11 +1189,11 @@ const EditorDashboard = ({ currentUser }) => {
                                                 </div>
 
                                                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-zinc-200 dark:border-white/5">
-                                                    <div className="bg-zinc-100/50 dark:bg-[#0c0d10] p-4 border border-zinc-205 dark:border-white/5 rounded-2xl text-center">
+                                                    <div className="bg-zinc-100/50 dark:bg-[#0c0d10] p-5 border border-zinc-205 dark:border-white/5 rounded-2xl text-center">
                                                         <span className="text-[9px] text-zinc-500 dark:text-gray-500 uppercase font-mono font-bold tracking-wider">Assigned</span>
                                                         <div className="text-2xl font-black font-mono mt-1 text-zinc-800 dark:text-white">{reviewerPapers.length}</div>
                                                     </div>
-                                                    <div className="bg-zinc-100/50 dark:bg-[#0c0d10] p-4 border border-zinc-205 dark:border-white/5 rounded-2xl text-center">
+                                                    <div className="bg-zinc-100/50 dark:bg-[#0c0d10] p-5 border border-zinc-205 dark:border-white/5 rounded-2xl text-center">
                                                         <span className="text-[9px] text-emerald-600 dark:text-green-500/65 uppercase font-mono font-bold tracking-wider">Completed</span>
                                                         <div className="text-2xl font-black font-mono mt-1 text-emerald-600 dark:text-green-400">{completed}</div>
                                                     </div>
@@ -968,6 +1309,171 @@ const EditorDashboard = ({ currentUser }) => {
                                 </div>
                             </div>
                         )}
+
+                        {activeTab === 'skills' && (
+                            <div className="admin-section-container relative p-8 sm:p-12 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-[32px] shadow-2xl animate-in fade-in duration-500 text-left">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-10 border-b border-zinc-100 dark:border-white/5 pb-6">
+                                    <div>
+                                        <div className="flex items-center gap-3">
+                                            <Cpu className="text-cyan-600 dark:text-cyan-400" size={24} />
+                                            <h2 className="text-2xl font-bold uppercase tracking-tight text-zinc-900 dark:text-white">AI Skills & Prompt Manager</h2>
+                                        </div>
+                                        <p className="text-xs text-zinc-500 dark:text-gray-400 mt-2 max-w-3xl leading-relaxed">
+                                            Define and refine the instructions, criteria, and specialized domain guidelines that the LLM uses to evaluate technology pitches. Active skills are automatically injected into the LLM system prompt.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleCreateNewSkill}
+                                        className="w-full sm:w-auto px-6 py-3.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black uppercase tracking-wider text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/25"
+                                    >
+                                        <span className="text-sm font-black">+</span> Create Custom Skill
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-[500px]">
+                                    {/* Left pane: Skills roster list */}
+                                    <div className="lg:col-span-1 border-r border-zinc-250 dark:border-white/5 pr-0 lg:pr-8 flex flex-col gap-4 overflow-y-auto max-h-[600px]">
+                                        <h3 className="text-xs font-bold text-zinc-500 dark:text-gray-400 uppercase tracking-widest font-mono mb-2">Available Skills ({skills.length})</h3>
+                                        
+                                        {skills.length === 0 ? (
+                                            <div className="p-8 text-center border border-dashed border-zinc-200 dark:border-white/10 rounded-2xl text-zinc-500 dark:text-zinc-555 font-mono text-xs">
+                                                No skills configured. Click the button above to create one.
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {skills.map((s) => {
+                                                    const isSelected = selectedSkill && selectedSkill.id === s.id;
+                                                    return (
+                                                        <div
+                                                            key={s.id}
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            onClick={() => handleSelectSkill(s)}
+                                                            className={`p-5 rounded-2xl border transition-all text-left cursor-pointer outline-none ${
+                                                                isSelected
+                                                                    ? 'border-cyan-500 bg-cyan-50/10 dark:bg-cyan-955/10 ring-1 ring-cyan-500/20'
+                                                                    : 'border-zinc-200 dark:border-white/5 bg-zinc-50/50 dark:bg-[#0c0d10] hover:border-zinc-300 dark:hover:border-white/10'
+                                                            }`}
+                                                        >
+                                                            <div className="flex justify-between items-start gap-3 w-full">
+                                                                <h4 className="font-bold text-sm text-zinc-900 dark:text-white line-clamp-1 flex-1">{s.title}</h4>
+                                                                <span className={`inline-flex w-2.5 h-2.5 rounded-full shrink-0 ${s.is_active ? 'bg-emerald-500 shadow-lg shadow-emerald-500/30' : 'bg-zinc-400'}`} />
+                                                            </div>
+                                                            <div className="flex items-center justify-between gap-4 mt-3 pt-3 border-t border-zinc-200/50 dark:border-white/5">
+                                                                <code className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold bg-cyan-500/5 px-2 py-1 rounded-md">{s.id}</code>
+                                                                <label className="flex items-center gap-2 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                                                    <span className="text-[10px] uppercase font-mono tracking-wider font-bold text-zinc-400 dark:text-zinc-500">Active</span>
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={s.is_active}
+                                                                        onChange={(e) => handleToggleSkillActive(s, e.target.checked)}
+                                                                        className="w-3.5 h-3.5 accent-cyan-500 cursor-pointer"
+                                                                    />
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Right pane: Markdown skill editor workspace */}
+                                    <div className="lg:col-span-2 flex flex-col h-full">
+                                        {selectedSkill ? (
+                                            <div className="space-y-6 flex flex-col h-full animate-in fade-in duration-300">
+                                                <div className="flex justify-between items-center pb-4 border-b border-zinc-200/50 dark:border-white/5">
+                                                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider font-mono">
+                                                        {isNewSkill ? 'Creating New Skill' : 'Editing Skill Profile'}
+                                                    </h3>
+                                                    {!isNewSkill && (
+                                                        <button
+                                                            onClick={() => handleDeleteSkill(selectedSkill.id)}
+                                                            className="text-xs text-red-505 hover:text-red-400 font-mono font-bold flex items-center gap-1.5 cursor-pointer bg-red-500/5 px-3.5 py-2 rounded-xl border border-red-500/10 hover:bg-red-500/10 transition-all"
+                                                        >
+                                                            <Trash2 size={13} /> Delete Skill
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                                    <div className="space-y-2">
+                                                        <label className="block text-xs font-bold text-zinc-700 dark:text-gray-300 uppercase tracking-wider font-mono">Skill ID (Slug)</label>
+                                                        <input
+                                                            type="text"
+                                                            value={skillId}
+                                                            onChange={(e) => setSkillId(e.target.value.toLowerCase())}
+                                                            disabled={!isNewSkill}
+                                                            placeholder="e.g. software-evaluation"
+                                                            className="w-full bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-700 outline-none focus:border-cyan-500 transition-all font-mono disabled:opacity-50"
+                                                        />
+                                                        {isNewSkill && <p className="text-[9px] text-zinc-450 dark:text-zinc-500 font-mono">Only lowercase letters, numbers, and hyphens.</p>}
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <label className="block text-xs font-bold text-zinc-700 dark:text-gray-300 uppercase tracking-wider font-mono">Skill Title</label>
+                                                        <input
+                                                            type="text"
+                                                            value={skillTitle}
+                                                            onChange={(e) => setSkillTitle(e.target.value)}
+                                                            placeholder="e.g. Software & Architecture evaluation"
+                                                            className="w-full bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-white/10 rounded-xl px-5 py-3.5 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-700 outline-none focus:border-cyan-500 transition-all font-bold"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-3 bg-zinc-50 dark:bg-black/30 border border-zinc-200/50 dark:border-white/5 rounded-2xl p-4">
+                                                    <label className="flex items-center gap-3.5 cursor-pointer select-none">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={skillIsActive}
+                                                            onChange={(e) => setSkillIsActive(e.target.checked)}
+                                                            className="w-4 h-4 accent-cyan-500 cursor-pointer"
+                                                        />
+                                                        <div className="text-left">
+                                                            <div className="text-xs font-bold text-zinc-800 dark:text-white">Activate Guideline Card</div>
+                                                            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono mt-0.5">When active, these guidelines are injected directly into the LLM context.</div>
+                                                        </div>
+                                                    </label>
+                                                </div>
+
+                                                <div className="space-y-2 flex-1 flex flex-col min-h-[300px]">
+                                                    <label className="block text-xs font-bold text-zinc-700 dark:text-gray-300 uppercase tracking-wider font-mono">Markdown Prompt Instructions</label>
+                                                    <textarea
+                                                        value={skillContent}
+                                                        onChange={(e) => setSkillContent(e.target.value)}
+                                                        placeholder="# Guidelines for evaluating software startups...&#10;- Look for code debt and architectural complexity.&#10;- Require API documentation and infrastructure layouts."
+                                                        className="w-full flex-1 bg-zinc-50 dark:bg-black border border-zinc-250 dark:border-white/10 rounded-2xl p-5 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-700 outline-none focus:border-cyan-500 transition-all font-mono resize-none leading-relaxed"
+                                                    />
+                                                </div>
+
+                                                <div className="pt-4 border-t border-zinc-200/50 dark:border-white/5 flex gap-4">
+                                                    <button
+                                                        onClick={handleSaveSkill}
+                                                        disabled={isSavingSkill}
+                                                        className="px-8 py-4 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-55 text-white font-bold uppercase tracking-wider text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20"
+                                                    >
+                                                        {isSavingSkill ? <Loader className="animate-spin" size={13} /> : 'Save Skill Guidelines'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleSelectSkill(null)}
+                                                        className="px-6 py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-700 dark:text-gray-300 font-bold uppercase tracking-wider text-xs rounded-xl transition-all cursor-pointer"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-zinc-200 dark:border-white/10 rounded-[24px] p-8 text-center text-zinc-450 dark:text-zinc-500 font-mono text-xs min-h-[400px]">
+                                                <Cpu className="text-zinc-300 dark:text-zinc-700 mb-4 animate-pulse" size={48} />
+                                                <p className="font-bold text-zinc-650 dark:text-gray-400">AI Skills Editing Workspace</p>
+                                                <p className="max-w-md mt-2 text-[10px] text-zinc-500 leading-relaxed">Select an active skill card from the left sidebar to edit, or click "Create Custom Skill" to add a new guideline template.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
@@ -975,7 +1481,7 @@ const EditorDashboard = ({ currentUser }) => {
             {/* Paper Ingestion PDF Upload Modal */}
             {showUploadModal && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-zinc-905/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
-                    <div className="w-full max-w-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden text-left animate-in zoom-in-95 duration-200">
+                    <div className="w-full max-w-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-clip text-left animate-in zoom-in-95 duration-200">
                         <header className="p-8 border-b border-zinc-100 dark:border-white/10 flex justify-between items-center bg-gradient-to-r from-cyan-500/5 dark:from-cyan-950/20 to-transparent">
                             <div className="flex items-center gap-2">
                                 <Upload className="text-cyan-500 dark:text-cyan-400" size={20} />
@@ -1153,8 +1659,8 @@ const EditorDashboard = ({ currentUser }) => {
             {/* Paper Curation details popup */}
             {selectedPaperDetails && (
                 <div className="fixed inset-0 z-[200] overflow-y-auto flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
-                    <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
-                        <header className="p-4 sm:p-8 border-b border-zinc-100 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-emerald-500/5 dark:from-emerald-955/20 to-transparent">
+                    <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-clip max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
+                        <header className="p-6 sm:p-8 border-b border-zinc-100 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-emerald-500/5 dark:from-emerald-955/20 to-transparent">
                           <div>
                             <div className="flex items-center gap-2.5 mb-2">
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-wider font-mono">
@@ -1176,61 +1682,103 @@ const EditorDashboard = ({ currentUser }) => {
                             <X size={18} />
                           </button>
                         </header>
+                        <div className="p-8 overflow-y-auto space-y-10 flex-1 text-left">
+                          {(() => {
+                            const completedReviews = paperReviews.filter(r => r.paper_id === selectedPaperDetails.id && r.status === 'completed');
+                            
+                            // Fallback to legacy single assignment
+                            let displayReviews = completedReviews;
+                            if (completedReviews.length === 0 && selectedPaperDetails.status === 'completed' && selectedPaperDetails.assessment) {
+                              displayReviews = [{
+                                reviewer_id: selectedPaperDetails.assigned_to,
+                                status: 'completed',
+                                assessment: selectedPaperDetails.assessment
+                              }];
+                            }
 
-                        <div className="p-8 overflow-y-auto space-y-8 flex-1 text-left">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                            <div className="p-6 bg-zinc-50 dark:bg-black/50 border border-zinc-200 dark:border-white/5 rounded-2xl">
-                              <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 font-mono">Expert Auditor</span>
-                              <h5 className="font-black text-base text-zinc-800 dark:text-gray-205 mt-1">{selectedPaperDetails.assessment?.reviewer_name || reviewers.find(r => r.id === selectedPaperDetails.assigned_to)?.name || reviewers.find(r => r.id === selectedPaperDetails.assigned_to)?.email || selectedPaperDetails.assigned_to}</h5>
-                              <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1">{selectedPaperDetails.assessment?.reviewer_affiliation || 'Expert Partner'}</p>
-                            </div>
-                            <div className="p-6 bg-zinc-50 dark:bg-black/50 border border-zinc-200 dark:border-white/5 rounded-2xl flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 font-mono">Fidelity Score</span>
-                                <h5 className="font-mono font-black text-3xl text-emerald-600 dark:text-emerald-400 mt-1">{selectedPaperDetails.assessment?.score}%</h5>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-550 font-mono">Verdict</span>
-                                <div className="font-black text-xs text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mt-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-250 dark:border-emerald-500/20 rounded-lg">
-                                  {selectedPaperDetails.assessment?.verdict}
+                            if (displayReviews.length === 0) {
+                              return (
+                                <div className="text-center py-12 text-zinc-500 dark:text-gray-450 italic font-mono text-xs">
+                                  No completed reviewer assessments found.
                                 </div>
-                              </div>
-                            </div>
-                          </div>
+                              );
+                            }
 
-                          <div className="space-y-3">
-                            <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 tracking-wider font-mono">Reviewer Assessment Notes</span>
-                            <div className="p-6 bg-zinc-50/50 dark:bg-black/40 border border-zinc-200 dark:border-white/5 rounded-2xl text-sm text-zinc-700 dark:text-gray-355 leading-relaxed font-mono whitespace-pre-line">
-                              {selectedPaperDetails.assessment?.notes}
-                            </div>
-                          </div>
+                            return displayReviews.map((reviewRecord, rIdx) => {
+                              const revProfile = reviewers.find(rev => rev.id === reviewRecord.reviewer_id);
+                              const reviewerDisplayName = reviewRecord.assessment?.reviewer_name || revProfile?.name || revProfile?.email || 'Expert Reviewer';
+                              const reviewerAffiliationName = reviewRecord.assessment?.reviewer_affiliation || revProfile?.affiliation || 'Expert Partner';
+                              const reviewerAnnos = selectedPaperDetails.annotations ? selectedPaperDetails.annotations.filter(ann => {
+                                if (!ann.reviewer_id) {
+                                  return !reviewRecord.reviewer_id || reviewRecord.reviewer_id === selectedPaperDetails.assigned_to;
+                                }
+                                return ann.reviewer_id === reviewRecord.reviewer_id;
+                              }) : [];
 
-                          <div className="space-y-4">
-                            <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-550 tracking-wider font-mono">Highlights & Claims Annotated ({selectedPaperDetails.annotations?.length || 0})</span>
-                            {selectedPaperDetails.annotations && selectedPaperDetails.annotations.length > 0 ? (
-                              <div className="space-y-4">
-                                {selectedPaperDetails.annotations.map((ann, idx) => (
-                                  <div key={idx} className="p-6 bg-zinc-50/40 dark:bg-white/[0.01] border border-zinc-200 dark:border-white/5 rounded-2xl flex flex-col gap-3">
-                                    <div className="flex justify-between items-center border-b border-zinc-200 dark:border-white/5 pb-2 text-[9px] font-mono text-zinc-555 dark:text-gray-500 uppercase">
-                                      <span>Annotated Passage</span>
-                                      {ann.page > 0 && <span>Page {ann.page}</span>}
+                              return (
+                                <div key={reviewRecord.reviewer_id || rIdx} className="space-y-6 border-b border-zinc-200 dark:border-white/10 pb-8 last:border-b-0 last:pb-0">
+                                  <div className="flex items-center gap-2 mb-4">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                                    <h4 className="text-sm font-bold uppercase tracking-widest text-zinc-550 dark:text-gray-450 font-mono">Assessment by {reviewerDisplayName}</h4>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                    <div className="p-6 bg-zinc-50 dark:bg-black/50 border border-zinc-200 dark:border-white/5 rounded-2xl">
+                                      <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-505 font-mono">Expert Auditor</span>
+                                      <h5 className="font-black text-base text-zinc-800 dark:text-gray-200 mt-1">{reviewerDisplayName}</h5>
+                                      <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-1">{reviewerAffiliationName}</p>
                                     </div>
-                                    <p className="text-xs text-zinc-650 dark:text-gray-400 italic leading-relaxed border-l-2 border-cyan-500/60 pl-3">
-                                      "{ann.text}"
-                                    </p>
-                                    <div className="p-4 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100 dark:border-cyan-500/10 rounded-xl">
-                                      <span className="text-[8px] font-mono uppercase text-cyan-600 dark:text-cyan-400 font-bold tracking-wider">Reviewer Comment</span>
-                                      <p className="text-xs text-cyan-800 dark:text-cyan-300 mt-1.5 leading-relaxed font-sans">{ann.comment}</p>
+                                    <div className="p-6 bg-zinc-50 dark:bg-black/50 border border-zinc-200 dark:border-white/5 rounded-2xl flex justify-between items-center">
+                                      <div>
+                                        <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-505 font-mono">Fidelity Score</span>
+                                        <h5 className="font-mono font-black text-3xl text-emerald-600 dark:text-emerald-400 mt-1">{reviewRecord.assessment?.score}%</h5>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-505 font-mono">Verdict</span>
+                                        <div className="font-black text-xs text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mt-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-250 dark:border-emerald-500/20 rounded-lg">
+                                          {reviewRecord.assessment?.verdict}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-10 border border-dashed border-zinc-200 dark:border-white/5 rounded-2xl text-zinc-400 dark:text-gray-600 italic text-xs font-mono">
-                                No claims annotations created.
-                              </div>
-                            )}
-                          </div>
+
+                                  <div className="space-y-3">
+                                    <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-505 tracking-wider font-mono">Reviewer Assessment Notes</span>
+                                    <div className="p-6 bg-zinc-50/50 dark:bg-black/40 border border-zinc-200 dark:border-white/5 rounded-2xl text-sm text-zinc-700 dark:text-gray-300 leading-relaxed font-mono whitespace-pre-line">
+                                      {reviewRecord.assessment?.notes}
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-4">
+                                    <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-505 tracking-wider font-mono">Highlights & Claims Annotated ({reviewerAnnos.length})</span>
+                                    {reviewerAnnos.length > 0 ? (
+                                      <div className="space-y-4">
+                                        {reviewerAnnos.map((ann, idx) => (
+                                          <div key={idx} className="p-6 bg-zinc-50/40 dark:bg-white/[0.01] border border-zinc-200 dark:border-white/5 rounded-2xl flex flex-col gap-3">
+                                            <div className="flex justify-between items-center border-b border-zinc-200 dark:border-white/5 pb-2 text-[9px] font-mono text-zinc-500 dark:text-gray-500 uppercase">
+                                              <span>Annotated Passage</span>
+                                              {ann.page > 0 && <span>Page {ann.page}</span>}
+                                            </div>
+                                            <p className="text-xs text-zinc-650 dark:text-gray-400 italic leading-relaxed border-l-2 border-cyan-500/60 pl-3">
+                                              "{ann.text}"
+                                            </p>
+                                            <div className="p-4 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100 dark:border-cyan-500/10 rounded-xl">
+                                              <span className="text-[8px] font-mono uppercase text-cyan-600 dark:text-cyan-400 font-bold tracking-wider">Reviewer Comment</span>
+                                              <p className="text-xs text-cyan-800 dark:text-cyan-300 mt-1.5 leading-relaxed font-sans">{ann.comment}</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-6 border border-dashed border-zinc-205 dark:border-white/5 rounded-2xl text-zinc-400 dark:text-gray-600 italic text-xs font-mono">
+                                        No claims annotations created by this reviewer.
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
                         </div>
 
                         <footer className="p-6 border-t border-zinc-100 dark:border-white/10 flex justify-end bg-zinc-50 dark:bg-black">

@@ -29,7 +29,7 @@ export const embedText = async (text, apiKey) => {
 };
 
 // Call Gemini 2.5 Flash to perform startup pitch analysis
-export const generateAnalysis = async (pitch, context, apiKey, modality) => {
+export const generateAnalysis = async (pitch, context, apiKey, skillsText) => {
     if (!apiKey) throw new Error("Gemini API key is not configured.");
     
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
@@ -38,7 +38,10 @@ export const generateAnalysis = async (pitch, context, apiKey, modality) => {
         ? context.join('\n\n---\n\n')
         : "No context papers found.";
         
-    const roleDescription = "You are a professional Deep Tech Scientific Due Diligence Analyst. Your goal is to provide a rigorous, objective, and evidence-based analysis of the user's technology proposal. First, evaluate engineering feasibility and physical viability, identifying any physics law violations, mathematical flaws, or state-of-the-art contradictions. Second, identify scaling bottlenecks and suggest alternative scientifically viable materials, methodologies, or research directions. Combine both critical engineering risks and constructive development paths.";
+    const roleDescription = `You are a professional Deep Tech Scientific Due Diligence Analyst. Your goal is to provide a rigorous, objective, and evidence-based analysis of the user's technology proposal. First, evaluate engineering feasibility and physical viability, identifying any physics law violations, mathematical flaws, or state-of-the-art contradictions. Second, identify scaling bottlenecks and suggest alternative scientifically viable materials, methodologies, or research directions. Combine both critical engineering risks and constructive development paths.
+
+In addition, you must incorporate the following specific guidelines and domain knowledge:
+${skillsText || '- Evaluate startup pitch against peer-reviewed literature and expert annotations.\n- Identify engineering risks, physics law violations, and scaling bottlenecks.\n- Suggest alternative materials, methodologies, or research directions.\n- Treat expert annotations as high-confidence domain signals and weight them heavily.'}`;
 
     const verdictOptions = '["Sound & Scalable", "Plausible with Risks", "Unrealistic", "Infeasible"]';
 

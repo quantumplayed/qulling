@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Link, useNavigate, Navigate } from 'react-router-dom';
-import { Terminal, AlertTriangle, CheckCircle, ArrowRight, Cpu, ShieldCheck, Zap, Loader, ExternalLink, Lightbulb, MoreVertical, LayoutDashboard, UserCheck, X, LogIn, Award, Settings, ShieldAlert, User, LogOut, Sun, Moon } from 'lucide-react';
+import { Terminal, AlertTriangle, CheckCircle, ArrowRight, Cpu, ShieldCheck, Zap, Loader, ExternalLink, Lightbulb, MoreVertical, LayoutDashboard, UserCheck, X, LogIn, Award, ShieldAlert, User, LogOut, Sun, Moon } from 'lucide-react';
 import ExpertPortal from './components/ExpertPortal';
 import EditorDashboard from './components/EditorDashboard';
 import UserDashboard from './components/UserDashboard';
@@ -85,26 +85,36 @@ function App() {
     };
     checkUser();
 
-    // Listen to changes
+    // Listen to changes — only update state if user actually changed
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .maybeSingle()
-          .then(({ data: profile }) => {
-            if (profile) {
-              setCurrentUser({
-                id: profile.id,
-                email: profile.email,
-                role: profile.role,
-                name: profile.name,
-                affiliation: profile.affiliation || 'Expert Partner'
-              });
-            }
-          })
-          .catch(err => console.error("Error fetching profile in auth change:", err));
+        setCurrentUser(prev => {
+          // Skip redundant profile fetches if user hasn't changed
+          if (prev && prev.id === session.user.id && event === 'TOKEN_REFRESHED') return prev;
+          // Fetch profile for genuinely new sessions
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle()
+            .then(({ data: profile }) => {
+              if (profile) {
+                setCurrentUser(cur => {
+                  // Only update if something actually changed
+                  if (cur && cur.id === profile.id && cur.name === profile.name && cur.role === profile.role) return cur;
+                  return {
+                    id: profile.id,
+                    email: profile.email,
+                    role: profile.role,
+                    name: profile.name,
+                    affiliation: profile.affiliation || 'Expert Partner'
+                  };
+                });
+              }
+            })
+            .catch(err => console.error("Error fetching profile in auth change:", err));
+          return prev;
+        });
       } else {
         setCurrentUser(null);
       }
@@ -305,8 +315,28 @@ function App() {
         return entry;
       });
 
+      logMsg("Fetching system guidelines and active skills...");
+      let activeSkillsText = "";
+      try {
+        const { data: skillsData, error: skillsError } = await supabase
+          .from('skills')
+          .select('*')
+          .eq('is_active', true);
+        
+        if (skillsError) {
+          console.warn("Failed to fetch skills (table may not exist yet):", skillsError.message);
+        } else if (skillsData && skillsData.length > 0) {
+          activeSkillsText = skillsData.map(s => `[SKILL: ${s.title}]\n${s.content}`).join('\n\n');
+          logMsg(`Loaded ${skillsData.length} active AI skill(s) from database.`);
+        } else {
+          logMsg("No active AI skills found in database. Using system defaults.");
+        }
+      } catch (err) {
+        console.error("Error reading skills table:", err);
+      }
+
       logMsg("Submitting context to verification model...");
-      const analysis = await generateAnalysis(pitch, enrichedContext, apiKey, modality);
+      const analysis = await generateAnalysis(pitch, enrichedContext, apiKey, activeSkillsText);
       logMsg("Analysis completed. Finalizing evaluation reports...");
 
       const references = [];
@@ -317,17 +347,40 @@ function App() {
           .select('*')
           .in('id', paperIds);
 
+        // Fetch completed paper reviews
+        let paperReviews = [];
+        const { data: reviewsData, error: reviewsError } = await supabase
+          .from('paper_reviews')
+          .select('*')
+          .in('paper_id', paperIds)
+          .eq('status', 'completed');
+        if (!reviewsError) {
+          paperReviews = reviewsData || [];
+        }
+
         if (papersData) {
           papersData.forEach(p => {
             const paperAnnos = allAnnotations.filter(a => a.paper_id === p.id);
+            
+            // Find reviews for this paper
+            let matchingReviews = paperReviews.filter(r => r.paper_id === p.id);
+            // Fallback to legacy single assignment
+            if (matchingReviews.length === 0 && p.status === 'completed' && p.assessment) {
+              matchingReviews = [{
+                reviewer_id: p.assigned_to,
+                status: 'completed',
+                assessment: p.assessment
+              }];
+            }
+
             references.push({
               id: p.id,
               title: p.title,
               author: p.authors || 'Unknown Author',
               year: p.year || 'N/A',
               source: p.source,
-              reviewed: p.status === 'completed' && p.assessment,
-              assessment: p.assessment,
+              reviewed: matchingReviews.length > 0,
+              reviews: matchingReviews,
               annotations: paperAnnos
             });
           });
@@ -458,37 +511,42 @@ function App() {
 
           <div className="flex gap-3 items-center">
 
-            {/* Dark Mode Toggle */}
+            {/* Dark Mode Slider Toggle */}
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-600 dark:text-gray-400 h-10 w-10 flex items-center justify-center transition-all cursor-pointer"
+              className="relative flex items-center w-16 h-9 rounded-full border border-zinc-200 dark:border-white/10 bg-zinc-200 dark:bg-zinc-800 transition-colors duration-300 cursor-pointer p-0.5 shrink-0"
               title="Toggle Light/Dark Theme"
+              aria-label="Toggle theme"
             >
-              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+              <span
+                className={`absolute flex items-center justify-center w-7 h-7 rounded-full bg-white dark:bg-zinc-950 shadow-md transition-transform duration-300 ease-in-out ${
+                  isDarkMode ? 'translate-x-[1.75rem]' : 'translate-x-0.5'
+                }`}
+              >
+                {isDarkMode ? <Moon size={14} className="text-purple-400" /> : <Sun size={14} className="text-amber-500" />}
+              </span>
             </button>
 
-            {/* Settings button */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 rounded-lg border border-zinc-200 dark:border-white/10 bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-600 dark:text-gray-400 h-10 w-10 flex items-center justify-center transition-all cursor-pointer"
-              title="Settings"
-            >
-              <Settings size={18} />
-            </button>
+
 
             {/* Supabase style Login Green Button / Profile menu */}
             {currentUser ? (
               <div className="relative">
                 <button
                   onClick={() => setShowInternalMenu(!showInternalMenu)}
-                  className="px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-white/10 hover:bg-zinc-200 dark:hover:bg-white/5 text-zinc-800 dark:text-gray-250 text-xs font-bold rounded-xl transition-all h-10 flex items-center gap-2 cursor-pointer"
+                  className="w-10 h-10 rounded-full bg-gradient-to-br from-[#3ecf8e] to-emerald-600 text-white text-xs font-black flex items-center justify-center cursor-pointer hover:shadow-lg hover:shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 uppercase tracking-wide select-none border-2 border-white/20"
+                  title={currentUser.name || currentUser.email}
                 >
-                  <User size={14} className="text-[#3ecf8e]" />
-                  {(currentUser.name || currentUser.email || '').split(' ')[0]}
+                  {(() => {
+                    const name = currentUser.name || currentUser.email || '';
+                    const parts = name.trim().split(/\s+/);
+                    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+                    return name.slice(0, 2).toUpperCase();
+                  })()}
                 </button>
 
                 {showInternalMenu && (
-                  <div className="absolute right-0 mt-6 w-80 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 z-[100] backdrop-blur-md text-left">
+                  <div className="absolute right-0 mt-6 w-80 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-clip animate-in fade-in zoom-in duration-200 z-[100] backdrop-blur-md text-left">
                     <div className="p-8 border-b border-zinc-100 dark:border-white/5 bg-zinc-50 dark:bg-white/5 text-center flex flex-col items-center">
                       <div className="text-zinc-800 dark:text-gray-250 font-bold text-lg leading-snug break-all max-w-[240px]">{currentUser.name || currentUser.email}</div>
                       <div className="text-[10px] uppercase font-mono text-[#3ecf8e] tracking-wider mt-1.5 font-semibold">{currentUser.role} • {currentUser.affiliation}</div>
@@ -706,7 +764,7 @@ function App() {
                                               onClick={() => setSelectedCurationRef(ref)}
                                               className="inline-flex items-center gap-1.5 px-3 py-1 bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400 rounded-full text-[9px] font-black uppercase tracking-wider hover:bg-green-500/20 transition-all cursor-pointer shadow-lg shadow-green-500/5"
                                             >
-                                              <Award size={11} /> Expert Reviewed ({ref.assessment.score}%)
+                                              <Award size={11} /> Expert Reviewed ({ref.reviews && ref.reviews.length > 1 ? `${ref.reviews.length} reviews` : `${ref.reviews?.[0]?.assessment?.score || ref.assessment?.score || 0}%`})
                                             </button>
                                           ) : (
                                             <span className="text-[9px] font-mono text-zinc-400 dark:text-gray-600 uppercase bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 px-2 py-0.5 rounded">Uncurated</span>
@@ -795,8 +853,8 @@ function App() {
       {/* Curation Reference details modal */}
       {selectedCurationRef && (
         <div className="fixed inset-0 z-[200] overflow-y-auto flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
-          <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
-            <header className="p-4 sm:p-6 border-b border-zinc-200 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-green-500/5 dark:from-green-950/20 to-transparent">
+          <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-clip max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
+            <header className="p-6 sm:p-8 border-b border-zinc-200 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-green-500/5 dark:from-green-950/20 to-transparent">
               <div>
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-400 rounded-full text-[9px] font-black uppercase tracking-wider">
@@ -814,66 +872,104 @@ function App() {
                 <X size={18} />
               </button>
             </header>
+            <div className="p-6 sm:p-8 overflow-y-auto space-y-10 flex-1 text-left">
+              {(() => {
+                let displayReviews = selectedCurationRef.reviews || [];
+                // Fallback to legacy single assessment if reviews is empty
+                if (displayReviews.length === 0 && selectedCurationRef.assessment) {
+                  displayReviews = [{
+                    reviewer_id: selectedCurationRef.assigned_to,
+                    status: 'completed',
+                    assessment: selectedCurationRef.assessment
+                  }];
+                }
 
-            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 text-left">
-              {/* Reviewer Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl">
-                  <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500">Expert Auditor</span>
-                  <h5 className="font-black text-sm text-zinc-800 dark:text-gray-200 mt-1">{selectedCurationRef.assessment.reviewer_name}</h5>
-                  <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-0.5">{selectedCurationRef.assessment.reviewer_affiliation || 'Expert Partner'}</p>
-                </div>
-                <div className="p-4 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl flex justify-between items-center">
-                  <div>
-                    <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 font-mono">Fidelity Score</span>
-                    <h5 className="font-mono font-black text-2xl text-green-600 dark:text-green-400 mt-1">{selectedCurationRef.assessment.score}%</h5>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 font-mono">Verdict</span>
-                    <div className="font-black text-xs text-white uppercase tracking-wider mt-1.5 px-2.5 py-1 bg-green-500/10 border border-green-500/20 rounded-lg">
-                      {selectedCurationRef.assessment.verdict}
+                if (displayReviews.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-zinc-500 dark:text-gray-455 italic font-mono text-xs">
+                      No completed expert reviews found.
                     </div>
-                  </div>
-                </div>
-              </div>
+                  );
+                }
 
-              {/* Assessment overall Notes */}
-              <div className="space-y-2">
-                <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 tracking-wider">Scientific Assessment Summary</span>
-                <div className="p-4 bg-zinc-50 dark:bg-black/40 border border-zinc-150 dark:border-white/5 rounded-2xl text-xs text-zinc-700 dark:text-gray-300 leading-relaxed font-mono whitespace-pre-line">
-                  {selectedCurationRef.assessment.notes}
-                </div>
-              </div>
+                return displayReviews.map((reviewRecord, rIdx) => {
+                  const reviewerDisplayName = reviewRecord.assessment?.reviewer_name || 'Expert Reviewer';
+                  const reviewerAffiliationName = reviewRecord.assessment?.reviewer_affiliation || 'Expert Partner';
+                  const reviewerAnnos = selectedCurationRef.annotations ? selectedCurationRef.annotations.filter(ann => {
+                    if (!ann.reviewer_id) {
+                      return !reviewRecord.reviewer_id || reviewRecord.reviewer_id === selectedCurationRef.assigned_to;
+                    }
+                    return ann.reviewer_id === reviewRecord.reviewer_id;
+                  }) : [];
 
-              {/* Specific annotations */}
-              <div className="space-y-3">
-                <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500 tracking-wider">Claims Commentary & Annotations</span>
-                {selectedCurationRef.annotations && selectedCurationRef.annotations.length > 0 ? (
-                  <div className="space-y-3">
-                    {selectedCurationRef.annotations.map((ann, idx) => (
-                      <div key={idx} className="p-4 bg-zinc-50/50 dark:bg-white/[0.02] border border-zinc-100 dark:border-white/5 rounded-2xl flex flex-col gap-2.5">
-                        <div className="flex justify-between items-center border-b border-zinc-100 dark:border-white/5 pb-2 text-[9px] font-mono text-zinc-500 dark:text-gray-500 uppercase">
-                          <span>Annotated Passage</span>
-                          <span>Page {ann.page}</span>
+                  return (
+                    <div key={reviewRecord.reviewer_id || rIdx} className="space-y-6 border-b border-zinc-200 dark:border-white/10 pb-8 last:border-b-0 last:pb-0">
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                        <h4 className="text-sm font-bold uppercase tracking-widest text-zinc-550 dark:text-gray-405 font-mono">Assessment by {reviewerDisplayName}</h4>
+                      </div>
+
+                      {/* Reviewer Details */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-5 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl">
+                          <span className="text-[9px] uppercase font-bold text-zinc-500 dark:text-gray-500">Expert Auditor</span>
+                          <h5 className="font-black text-sm text-zinc-800 dark:text-gray-200 mt-1">{reviewerDisplayName}</h5>
+                          <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-0.5">{reviewerAffiliationName}</p>
                         </div>
-                        <p className="text-xs text-zinc-700 dark:text-gray-400 italic leading-relaxed border-l-2 border-cyan-500/60 pl-3">
-                          "{ann.text}"
-                        </p>
-                        <div className="p-3 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100 dark:border-cyan-500/10 rounded-xl">
-                          <span className="text-[8px] font-mono uppercase text-cyan-600 dark:text-cyan-400 font-bold tracking-wider">Expert Critique</span>
-                          <p className="text-xs text-cyan-800 dark:text-cyan-300 mt-1 leading-relaxed font-sans">{ann.comment}</p>
+                        <div className="p-5 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl flex justify-between items-center">
+                          <div>
+                            <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-505 font-mono">Fidelity Score</span>
+                            <h5 className="font-mono font-black text-2xl text-green-600 dark:text-green-400 mt-1">{reviewRecord.assessment?.score}%</h5>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-550 font-mono">Verdict</span>
+                            <div className="font-black text-xs text-white uppercase tracking-wider mt-1.5 px-2.5 py-1 bg-green-500/10 border border-green-500/20 rounded-lg">
+                              {reviewRecord.assessment?.verdict}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 border border-dashed border-zinc-200 dark:border-white/5 rounded-2xl text-zinc-500 dark:text-gray-600 italic text-xs font-mono">
-                    No specific passage annotations registered for this paper.
-                  </div>
-                )}
-              </div>
-            </div>
 
+                      {/* Assessment overall Notes */}
+                      <div className="space-y-2">
+                        <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-550 tracking-wider">Scientific Assessment Summary</span>
+                        <div className="p-5 bg-zinc-50 dark:bg-black/40 border border-zinc-150 dark:border-white/5 rounded-2xl text-xs text-zinc-700 dark:text-gray-355 leading-relaxed font-mono whitespace-pre-line">
+                          {reviewRecord.assessment?.notes}
+                        </div>
+                      </div>
+
+                      {/* Specific annotations */}
+                      <div className="space-y-3">
+                        <span className="text-[9px] uppercase font-bold text-zinc-505 dark:text-gray-550 tracking-wider">Claims Commentary & Annotations ({reviewerAnnos.length})</span>
+                        {reviewerAnnos.length > 0 ? (
+                          <div className="space-y-3">
+                            {reviewerAnnos.map((ann, idx) => (
+                              <div key={idx} className="p-5 bg-zinc-50/50 dark:bg-white/[0.02] border border-zinc-100 dark:border-white/5 rounded-2xl flex flex-col gap-2.5">
+                                <div className="flex justify-between items-center border-b border-zinc-100 dark:border-white/5 pb-2 text-[9px] font-mono text-zinc-500 dark:text-gray-500 uppercase">
+                                  <span>Annotated Passage</span>
+                                  {ann.page > 0 && <span>Page {ann.page}</span>}
+                                </div>
+                                <p className="text-xs text-zinc-700 dark:text-gray-400 italic leading-relaxed border-l-2 border-cyan-500/60 pl-3">
+                                  "{ann.text}"
+                                </p>
+                                <div className="p-3 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100 dark:border-cyan-500/10 rounded-xl">
+                                  <span className="text-[8px] font-mono uppercase text-cyan-600 dark:text-cyan-400 font-bold tracking-wider">Expert Critique</span>
+                                  <p className="text-xs text-cyan-800 dark:text-cyan-305 mt-1 leading-relaxed font-sans">{ann.comment}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 border border-dashed border-zinc-200 dark:border-white/5 rounded-2xl text-zinc-500 dark:text-gray-600 italic text-xs font-mono">
+                            No specific passage annotations registered for this review.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
             <footer className="p-6 border-t border-zinc-200 dark:border-white/10 flex justify-end bg-zinc-50 dark:bg-black">
               <button
                 onClick={() => setSelectedCurationRef(null)}

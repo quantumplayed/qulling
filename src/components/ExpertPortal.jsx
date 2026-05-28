@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, ShieldCheck, FileText, CheckCircle, Clock, User, Zap, BookOpen, FileCode, Plus, Trash2, Award, ChevronRight, AlertTriangle, Loader } from 'lucide-react';
 import { getSupabaseClient } from '../services/supabaseClient';
 import { parsePdfPages } from '../services/pdfParser';
+import PdfReviewer from './PdfReviewer';
 
 const ExpertPortal = ({ currentUser }) => {
     const [papers, setPapers] = useState([]);
@@ -11,6 +12,7 @@ const ExpertPortal = ({ currentUser }) => {
     const [selectedText, setSelectedText] = useState('');
     const [selectedPageNum, setSelectedPageNum] = useState(1);
     const [critiqueComment, setCritiqueComment] = useState('');
+    const [selectedRects, setSelectedRects] = useState(null);
     
     // Assessment form state
     const [score, setScore] = useState(75);
@@ -38,13 +40,37 @@ const ExpertPortal = ({ currentUser }) => {
 
         try {
             const { data, error } = await supabase
-                .from('papers')
-                .select('*')
-                .eq('assigned_to', currentUser.id)
+                .from('paper_reviews')
+                .select('*, papers(*)')
+                .eq('reviewer_id', currentUser.id)
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
-            setPapers(data || []);
+            if (error) {
+                if (error.code === '42P01') {
+                    // Fallback to legacy structure if table isn't created yet
+                    console.warn("paper_reviews table missing, falling back to papers direct query...");
+                    const { data: legacyData, error: legacyError } = await supabase
+                        .from('papers')
+                        .select('*')
+                        .eq('assigned_to', currentUser.id)
+                        .order('created_at', { ascending: false });
+                    if (legacyError) throw legacyError;
+                    setPapers(legacyData || []);
+                } else {
+                    throw error;
+                }
+            } else {
+                const formatted = (data || []).map(r => {
+                    if (!r.papers) return null;
+                    return {
+                        ...r.papers,
+                        status: r.status,
+                        assessment: r.assessment,
+                        review_id: r.id
+                    };
+                }).filter(Boolean);
+                setPapers(formatted);
+            }
         } catch (error) {
             console.error("Failed to fetch reviewer queue from Supabase:", error);
         } finally {
@@ -86,6 +112,7 @@ const ExpertPortal = ({ currentUser }) => {
                 
                 const arrayBuffer = await response.arrayBuffer();
                 pages = await parsePdfPages(arrayBuffer);
+                setActivePaneTab('pdf'); // Default to interactive PDF view for PDF papers
             } else {
                 pages = [{
                     page_number: 1,
@@ -94,13 +121,30 @@ const ExpertPortal = ({ currentUser }) => {
                 }];
             }
 
-            // Fetch annotations from database
-            const { data: annos, error: annoErr } = await supabase
+            // Fetch annotations from database (isolate comments to active reviewer)
+            let annos = [];
+            const { data: filteredAnnos, error: annoErr } = await supabase
                 .from('annotations')
                 .select('*')
-                .eq('paper_id', paperId);
+                .eq('paper_id', paperId)
+                .eq('reviewer_id', currentUser.id);
 
-            if (annoErr) throw annoErr;
+            if (annoErr) {
+                if (annoErr.code === '42703' || annoErr.message?.includes('reviewer_id')) {
+                    // Fallback to legacy/unfiltered queries if database hasn't been migrated yet
+                    console.warn("reviewer_id column missing on annotations, falling back to unfiltered query...");
+                    const { data: fallbackAnnos, error: fbAnnoErr } = await supabase
+                        .from('annotations')
+                        .select('*')
+                        .eq('paper_id', paperId);
+                    if (fbAnnoErr) throw fbAnnoErr;
+                    annos = fallbackAnnos || [];
+                } else {
+                    throw annoErr;
+                }
+            } else {
+                annos = filteredAnnos || [];
+            }
 
             setPaperContent({
                 id: paper.id,
@@ -144,6 +188,7 @@ const ExpertPortal = ({ currentUser }) => {
     const clearSelection = () => {
         setSelectedText('');
         setCritiqueComment('');
+        setSelectedRects(null);
         window.getSelection()?.removeAllRanges();
     };
 
@@ -156,18 +201,45 @@ const ExpertPortal = ({ currentUser }) => {
 
         try {
             // Save annotation record to database
-            const { data, error } = await supabase
+            const payload = {
+                paper_id: selectedPaperId,
+                reviewer_id: currentUser.id,
+                text: selectedText,
+                comment: critiqueComment.trim(),
+                page: selectedPageNum,
+                bounding_rects: selectedRects || null
+            };
+
+            let { data, error } = await supabase
                 .from('annotations')
-                .insert({
+                .insert(payload)
+                .select()
+                .single();
+
+            if (error) {
+                // If it fails because reviewer_id or bounding_rects doesn't exist, try safe fallback
+                console.warn("Insert failed, trying safe fallback payload...", error.message);
+                const fallbackPayload = {
                     paper_id: selectedPaperId,
                     text: selectedText,
                     comment: critiqueComment.trim(),
                     page: selectedPageNum
-                })
-                .select()
-                .single();
-
-            if (error) throw error;
+                };
+                
+                // If reviewer_id column is supported, keep it
+                if (!error.message?.includes('reviewer_id') && !error.code?.includes('42703')) {
+                    fallbackPayload.reviewer_id = currentUser.id;
+                }
+                
+                const { data: fbData, error: fbError } = await supabase
+                    .from('annotations')
+                    .insert(fallbackPayload)
+                    .select()
+                    .single();
+                
+                if (fbError) throw fbError;
+                data = fbData;
+            }
 
             // Update local paper state
             setPaperContent(prev => ({
@@ -178,7 +250,16 @@ const ExpertPortal = ({ currentUser }) => {
             // Automatically set status to "reviewing" if it was just "assigned"
             const paper = papers.find(p => p.id === selectedPaperId);
             if (paper && paper.status === 'assigned') {
-                await supabase.from('papers').update({ status: 'reviewing' }).eq('id', selectedPaperId);
+                const { error: statusErr } = await supabase
+                    .from('paper_reviews')
+                    .update({ status: 'reviewing' })
+                    .eq('paper_id', selectedPaperId)
+                    .eq('reviewer_id', currentUser.id);
+
+                if (statusErr && statusErr.code === '42P01') {
+                    // Fallback to updating papers table
+                    await supabase.from('papers').update({ status: 'reviewing' }).eq('id', selectedPaperId);
+                }
                 await fetchQueue();
             }
 
@@ -234,15 +315,31 @@ const ExpertPortal = ({ currentUser }) => {
                 reviewer_affiliation: currentUser.affiliation || 'Expert Partner'
             };
 
-            const { error } = await supabase
-                .from('papers')
+            let { error } = await supabase
+                .from('paper_reviews')
                 .update({
                     assessment: assessment_data,
                     status: 'completed'
                 })
-                .eq('id', selectedPaperId);
+                .eq('paper_id', selectedPaperId)
+                .eq('reviewer_id', currentUser.id);
 
-            if (error) throw error;
+            if (error) {
+                if (error.code === '42P01') {
+                    // Fallback to papers legacy table
+                    console.warn("paper_reviews table missing, falling back to papers direct update...");
+                    const { error: papersErr } = await supabase
+                        .from('papers')
+                        .update({
+                            assessment: assessment_data,
+                            status: 'completed'
+                        })
+                        .eq('id', selectedPaperId);
+                    if (papersErr) throw papersErr;
+                } else {
+                    throw error;
+                }
+            }
             
             alert("Audit Completed & Certificate Issued!");
             setSelectedPaperId(null);
@@ -418,8 +515,8 @@ const ExpertPortal = ({ currentUser }) => {
                         ) : paperContent ? (
                             <div className="grid lg:grid-cols-12 gap-8">
                                 {/* Left Pane - Reader / PDF Toggle */}
-                                <div className="lg:col-span-7 flex flex-col h-[55vh] lg:h-[78vh] border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl overflow-hidden shadow-2xl">
-                                    <header className="px-6 py-5 border-b border-zinc-100 dark:border-white/5 flex justify-between items-center bg-zinc-50 dark:bg-black/40">
+                                <div className="lg:col-span-7 flex flex-col h-[55vh] lg:h-[78vh] border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl overflow-clip shadow-2xl">
+                                    <header className="px-8 py-6 border-b border-zinc-100 dark:border-white/5 flex justify-between items-center bg-zinc-50 dark:bg-black/40">
                                         <div className="flex items-center gap-2">
                                             <BookOpen size={16} className="text-purple-500 dark:text-purple-400" />
                                             <span className="text-xs font-bold text-zinc-650 dark:text-gray-400 uppercase tracking-wider font-mono">
@@ -444,12 +541,27 @@ const ExpertPortal = ({ currentUser }) => {
                                         )}
                                     </header>
 
-                                    <div className="flex-1 overflow-y-auto p-6" ref={readerContainerRef}>
+                                    <div className="flex-1 overflow-y-auto p-8" ref={readerContainerRef}>
                                         {activePaneTab === 'pdf' && paperContent.pdf_url && paperContent.source !== 'pitch' ? (
-                                            <iframe
-                                                src={paperContent.pdf_url}
-                                                className="w-full h-full border-0 rounded-2xl bg-zinc-100 dark:bg-black"
-                                                title="PDF Document"
+                                            <PdfReviewer
+                                                pdfUrl={paperContent.pdf_url}
+                                                annotations={paperContent.annotations}
+                                                onTextSelected={(text, pageNum, rects) => {
+                                                    setSelectedText(text);
+                                                    setSelectedPageNum(pageNum);
+                                                    setSelectedRects(rects);
+                                                }}
+                                                onAnnotationClick={(anno) => {
+                                                    // Highlight clicked commentary box
+                                                    const annoEl = document.getElementById(`anno-card-${anno.id}`);
+                                                    if (annoEl) {
+                                                        annoEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                        annoEl.classList.add('ring-2', 'ring-purple-500', 'ring-offset-2', 'dark:ring-offset-black');
+                                                        setTimeout(() => {
+                                                            annoEl.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-2', 'dark:ring-offset-black');
+                                                        }, 2500);
+                                                    }
+                                                }}
                                             />
                                         ) : (
                                             <div className="space-y-8 max-w-2xl mx-auto">
@@ -481,7 +593,7 @@ const ExpertPortal = ({ currentUser }) => {
                                     
                                     {/* New Annotation Form */}
                                     {selectedText && (
-                                        <div className="p-6 sm:p-8 border border-purple-250 dark:border-purple-500/20 bg-purple-50/50 dark:bg-purple-950/5 rounded-3xl shadow-md text-left animate-in slide-in-from-top-4 duration-300">
+                                        <div className="p-7 sm:p-9 border border-purple-250 dark:border-purple-500/20 bg-purple-50/50 dark:bg-purple-950/5 rounded-3xl shadow-md text-left animate-in slide-in-from-top-4 duration-300">
                                             <div className="flex justify-between items-center mb-4">
                                                 <span className="text-xs font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 font-mono">
                                                     Add Commentary
@@ -518,7 +630,7 @@ const ExpertPortal = ({ currentUser }) => {
                                     )}
 
                                     {/* Annotations List */}
-                                    <div className="p-6 sm:p-8 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl shadow-lg text-left">
+                                    <div className="p-7 sm:p-9 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl shadow-lg text-left">
                                         <h3 className="text-[10px] font-bold text-zinc-500 dark:text-gray-400 uppercase tracking-[0.25em] mb-4 pb-3 border-b border-zinc-100 dark:border-white/5 flex items-center gap-2 font-mono">
                                             <FileText size={14} />
                                             Comments ({paperContent.annotations?.length || 0})
@@ -531,7 +643,7 @@ const ExpertPortal = ({ currentUser }) => {
                                         ) : (
                                             <div className="space-y-4 max-h-[220px] overflow-y-auto pr-1">
                                                 {paperContent.annotations.map(anno => (
-                                                    <div key={anno.id} className="p-4 bg-zinc-50 dark:bg-black/40 border border-zinc-150 dark:border-white/5 rounded-2xl flex gap-3 items-start justify-between group">
+                                                    <div key={anno.id} id={`anno-card-${anno.id}`} className="p-5 bg-zinc-50 dark:bg-black/40 border border-zinc-150 dark:border-white/5 rounded-2xl flex gap-3 items-start justify-between group transition-all duration-300">
                                                         <div className="flex-1 text-left min-w-0">
                                                             <div className="text-[9px] font-mono text-zinc-400 dark:text-gray-550 font-bold uppercase mb-1.5">
                                                                 Page {anno.page}
@@ -554,7 +666,7 @@ const ExpertPortal = ({ currentUser }) => {
                                     </div>
 
                                     {/* Assessment Form */}
-                                    <div className="p-6 sm:p-8 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl shadow-xl text-left flex-1 flex flex-col justify-between">
+                                    <div className="p-7 sm:p-9 border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0f1014] rounded-3xl shadow-xl text-left flex-1 flex flex-col justify-between">
                                         <div>
                                             <h3 className="text-[10px] font-bold text-purple-650 dark:text-purple-400 uppercase tracking-[0.25em] mb-6 pb-3 border-b border-zinc-100 dark:border-white/5 flex items-center gap-2 font-mono">
                                                 <Award size={14} />

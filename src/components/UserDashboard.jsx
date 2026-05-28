@@ -32,16 +32,40 @@ const UserDashboard = ({ currentUser }) => {
 
             if (error) throw error;
             
-            // For completed audits, fetch annotations as well
+            // For completed audits, fetch reviews and annotations as well
+            const pitchIds = (data || []).map(p => p.id);
+            let reviews = [];
+            if (pitchIds.length > 0) {
+                const { data: reviewsData, error: reviewsError } = await supabase
+                    .from('paper_reviews')
+                    .select('*')
+                    .in('paper_id', pitchIds)
+                    .eq('status', 'completed');
+                if (!reviewsError) {
+                    reviews = reviewsData || [];
+                }
+            }
+
             const pitchesWithAnnos = await Promise.all((data || []).map(async (p) => {
-                if (p.status === 'completed') {
-                    const { data: annos } = await supabase
+                let pitchReviews = reviews.filter(r => r.paper_id === p.id);
+                // Fallback for legacy single assignment
+                if (pitchReviews.length === 0 && p.status === 'completed' && p.assessment) {
+                    pitchReviews = [{
+                        reviewer_id: p.assigned_to,
+                        status: 'completed',
+                        assessment: p.assessment
+                    }];
+                }
+
+                let annos = [];
+                if (p.status === 'completed' || pitchReviews.length > 0) {
+                    const { data: annosData } = await supabase
                         .from('annotations')
                         .select('*')
                         .eq('paper_id', p.id);
-                    return { ...p, annotations: annos || [] };
+                    annos = annosData || [];
                 }
-                return { ...p, annotations: [] };
+                return { ...p, reviews: pitchReviews, annotations: annos };
             }));
 
             setPitches(pitchesWithAnnos);
@@ -130,7 +154,7 @@ const UserDashboard = ({ currentUser }) => {
                                         </span>
                                     </div>
                                     <div className="pt-2">
-                                        {pitch.status === 'completed' ? (
+                                        {pitch.status === 'completed' || (pitch.reviews && pitch.reviews.length > 0) ? (
                                             <button
                                                 onClick={() => setSelectedAudit(pitch)}
                                                 className="w-full supabase-btn-green py-2 rounded-xl text-[10px] uppercase tracking-widest inline-flex items-center justify-center gap-1.5 cursor-pointer"
@@ -138,7 +162,7 @@ const UserDashboard = ({ currentUser }) => {
                                                 <ShieldCheck size={12} /> View Certificate
                                             </button>
                                         ) : (
-                                            <div className="text-center py-2 text-[9px] font-mono text-zinc-500 dark:text-gray-500 uppercase tracking-wider bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 rounded-xl">
+                                            <div className="text-center py-2 text-[9px] font-mono text-zinc-550 dark:text-gray-550 uppercase tracking-wider bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/5 rounded-xl">
                                                 Awaiting Audit
                                             </div>
                                         )}
@@ -184,7 +208,7 @@ const UserDashboard = ({ currentUser }) => {
                                                 </span>
                                             </td>
                                             <td className="py-5 text-right">
-                                                {pitch.status === 'completed' ? (
+                                                {pitch.status === 'completed' || (pitch.reviews && pitch.reviews.length > 0) ? (
                                                     <button
                                                         onClick={() => setSelectedAudit(pitch)}
                                                         className="supabase-btn-green px-3.5 py-1.5 rounded-lg text-[10px] uppercase tracking-widest inline-flex items-center gap-1.5 cursor-pointer"
@@ -209,7 +233,7 @@ const UserDashboard = ({ currentUser }) => {
             {/* Scientific Certificate Modal */}
             {selectedAudit && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
-                    <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 border-emerald-500/25 dark:border-emerald-500/20 shadow-emerald-500/5">
+                    <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-clip max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 border-emerald-500/25 dark:border-emerald-500/20 shadow-emerald-500/5">
                         <header className="p-6 border-b border-zinc-100 dark:border-white/10 flex justify-between items-start bg-gradient-to-r from-emerald-500/5 dark:from-emerald-950/20 to-transparent">
                           <div>
                             <div className="flex items-center gap-2 mb-1.5">
@@ -228,60 +252,85 @@ const UserDashboard = ({ currentUser }) => {
                             <X size={18} />
                           </button>
                         </header>
+                        <div className="p-8 overflow-y-auto space-y-10 flex-1 text-left">
+                          {selectedAudit.reviews && selectedAudit.reviews.length > 0 ? (
+                            selectedAudit.reviews.map((reviewRecord, rIdx) => {
+                              const reviewerDisplayName = reviewRecord.assessment?.reviewer_name || 'Expert Reviewer';
+                              const reviewerAffiliationName = reviewRecord.assessment?.reviewer_affiliation || 'Expert Partner';
+                              const reviewerAnnos = selectedAudit.annotations ? selectedAudit.annotations.filter(ann => {
+                                if (!ann.reviewer_id) {
+                                  return !reviewRecord.reviewer_id || reviewRecord.reviewer_id === selectedAudit.assigned_to;
+                                }
+                                return ann.reviewer_id === reviewRecord.reviewer_id;
+                              }) : [];
 
-                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="p-4 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl">
-                              <span className="text-[9px] uppercase font-bold text-zinc-500 font-mono">Expert Auditor</span>
-                              <h5 className="font-black text-sm text-zinc-800 dark:text-gray-200 mt-1">{selectedAudit.assessment?.reviewer_name}</h5>
-                              <p className="text-[10px] text-zinc-500 font-mono mt-0.5">{selectedAudit.assessment?.reviewer_affiliation}</p>
-                            </div>
-                            <div className="p-4 bg-zinc-50 dark:bg-white/5 border border-zinc-100 dark:border-white/5 rounded-2xl flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] uppercase font-bold text-zinc-500 font-mono">Verification Score</span>
-                                <h5 className="font-mono font-black text-2xl text-emerald-600 dark:text-emerald-400 mt-1">{selectedAudit.assessment?.score}%</h5>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-[9px] uppercase font-bold text-zinc-500 font-mono">Verdict</span>
-                                <div className="font-black text-xs text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mt-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-250 dark:border-emerald-500/20 rounded-lg">
-                                  {selectedAudit.assessment?.verdict}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+                              return (
+                                <div key={reviewRecord.reviewer_id || rIdx} className="space-y-6 border-b border-zinc-200 dark:border-white/10 pb-8 last:border-b-0 last:pb-0">
+                                  <div className="flex items-center gap-2 mb-4">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                                    <h4 className="text-sm font-bold uppercase tracking-widest text-zinc-550 dark:text-gray-405 font-mono">Assessment by {reviewerDisplayName}</h4>
+                                  </div>
 
-                          <div className="space-y-2">
-                            <span className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider font-mono">Executive Auditor Notes</span>
-                            <div className="p-4 bg-zinc-50/50 dark:bg-black/40 border border-zinc-100 dark:border-white/5 rounded-2xl text-xs text-zinc-705 dark:text-gray-300 leading-relaxed font-mono whitespace-pre-line">
-                              {selectedAudit.assessment?.notes}
-                            </div>
-                          </div>
-
-                          <div className="space-y-3">
-                            <span className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider font-mono">Highlighted Claims & Expert Critiques ({selectedAudit.annotations?.length || 0})</span>
-                            {selectedAudit.annotations && selectedAudit.annotations.length > 0 ? (
-                              <div className="space-y-3">
-                                {selectedAudit.annotations.map((ann, idx) => (
-                                  <div key={idx} className="p-4 bg-zinc-50/40 dark:bg-white/[0.01] border border-zinc-100 dark:border-white/5 rounded-2xl flex flex-col gap-2.5">
-                                    <div className="flex justify-between items-center border-b border-zinc-100 dark:border-white/5 pb-2 text-[9px] font-mono text-zinc-550 dark:text-gray-500 uppercase">
-                                      <span>Annotated Passage</span>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="p-5 bg-zinc-50 dark:bg-white/5 border border-zinc-105 dark:border-white/5 rounded-2xl">
+                                      <span className="text-[9px] uppercase font-bold text-zinc-500 font-mono">Expert Auditor</span>
+                                      <h5 className="font-black text-sm text-zinc-800 dark:text-gray-200 mt-1">{reviewerDisplayName}</h5>
+                                      <p className="text-[10px] text-zinc-500 font-mono mt-0.5">{reviewerAffiliationName}</p>
                                     </div>
-                                    <p className="text-xs text-zinc-650 dark:text-gray-400 italic leading-relaxed border-l-2 border-cyan-500/60 pl-3">
-                                      "{ann.text}"
-                                    </p>
-                                    <div className="p-3 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100 dark:border-cyan-500/10 rounded-xl">
-                                      <span className="text-[8px] font-mono uppercase text-cyan-600 dark:text-cyan-400 font-bold tracking-wider">Expert Critique</span>
-                                      <p className="text-xs text-cyan-800 dark:text-cyan-300 mt-1 leading-relaxed font-sans">{ann.comment}</p>
+                                    <div className="p-5 bg-zinc-50 dark:bg-white/5 border border-zinc-105 dark:border-white/5 rounded-2xl flex justify-between items-center">
+                                      <div>
+                                        <span className="text-[9px] uppercase font-bold text-zinc-505 font-mono">Verification Score</span>
+                                        <h5 className="font-mono font-black text-2xl text-emerald-600 dark:text-emerald-400 mt-1">{reviewRecord.assessment?.score}%</h5>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-[9px] uppercase font-bold text-zinc-505 font-mono">Verdict</span>
+                                        <div className="font-black text-xs text-emerald-700 dark:text-emerald-300 uppercase tracking-wider mt-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-250 dark:border-emerald-500/20 rounded-lg">
+                                          {reviewRecord.assessment?.verdict}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-8 border border-dashed border-zinc-200 dark:border-white/5 rounded-2xl text-zinc-400 dark:text-gray-600 italic text-xs font-mono">
-                                No claims highlights were logged by the reviewer.
-                              </div>
-                            )}
-                          </div>
+
+                                  <div className="space-y-2">
+                                    <span className="text-[9px] uppercase font-bold text-zinc-505 tracking-wider font-mono">Executive Auditor Notes</span>
+                                    <div className="p-5 bg-zinc-50/50 dark:bg-black/40 border border-zinc-100 dark:border-white/5 rounded-2xl text-xs text-zinc-705 dark:text-gray-300 leading-relaxed font-mono whitespace-pre-line">
+                                      {reviewRecord.assessment?.notes}
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-3">
+                                    <span className="text-[9px] uppercase font-bold text-zinc-505 tracking-wider font-mono">Highlighted Claims & Expert Critiques ({reviewerAnnos.length})</span>
+                                    {reviewerAnnos.length > 0 ? (
+                                      <div className="space-y-3">
+                                        {reviewerAnnos.map((ann, idx) => (
+                                          <div key={idx} className="p-5 bg-zinc-50/40 dark:bg-white/[0.01] border border-zinc-100 dark:border-white/5 rounded-2xl flex flex-col gap-2.5">
+                                            <div className="flex justify-between items-center border-b border-zinc-100 dark:border-white/5 pb-2 text-[9px] font-mono text-zinc-550 dark:text-gray-500 uppercase">
+                                              <span>Annotated Passage</span>
+                                            </div>
+                                            <p className="text-xs text-zinc-650 dark:text-gray-400 italic leading-relaxed border-l-2 border-cyan-500/60 pl-3">
+                                              "{ann.text}"
+                                            </p>
+                                            <div className="p-4 bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-100 dark:border-cyan-500/10 rounded-xl">
+                                              <span className="text-[8px] font-mono uppercase text-cyan-600 dark:text-cyan-400 font-bold tracking-wider">Expert Critique</span>
+                                              <p className="text-xs text-cyan-800 dark:text-cyan-305 mt-1 leading-relaxed font-sans">{ann.comment}</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-8 border border-dashed border-zinc-200 dark:border-white/5 rounded-2xl text-zinc-400 dark:text-gray-600 italic text-xs font-mono">
+                                        No claims highlights were logged by this reviewer.
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="text-center py-12 text-zinc-500 dark:text-gray-450 italic font-mono text-xs">
+                              No completed reviewer audits found.
+                            </div>
+                          )}
                         </div>
 
                         <footer className="p-6 border-t border-zinc-100 dark:border-white/10 flex justify-end bg-zinc-50 dark:bg-black">
