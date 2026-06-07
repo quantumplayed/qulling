@@ -9,7 +9,7 @@ import SettingsModal from './components/SettingsModal';
 import ProfileModal from './components/ProfileModal';
 
 import { getSupabaseClient, getSupabaseConfig } from './services/supabaseClient';
-import { getGeminiApiKey, embedText, generateAnalysis } from './services/geminiService';
+import { getGeminiApiKey, embedText, generateAnalysis, generateInitialDraft, checkIsQuantumComputingRelated } from './services/geminiService';
 
 function App() {
   const navigate = useNavigate();
@@ -240,80 +240,31 @@ function App() {
       logMsg("Initializing feasibility assessment...");
       await new Promise(r => setTimeout(r, 400));
 
-      let chunkMatches = [];
-
       if (apiKey) {
-        logMsg("Analyzing technical proposal...");
-        const vector = await embedText(pitch, apiKey);
-
-        logMsg(`Searching scientific publication database index...`);
-        const { data: vectorMatches, error: matchError } = await supabase.rpc(
-          'match_paper_chunks',
-          {
-            query_embedding: vector,
-            match_threshold: 0.1,
-            match_count: 3
-          }
-        );
-
-        if (matchError) throw new Error(`Database lookup failed: ${matchError.message}`);
-        chunkMatches = vectorMatches || [];
-      } else {
-        logMsg("No Gemini key configured — skipping vector search, proceeding without retrieval context.");
-      }
-
-      logMsg(`Search complete: Identified ${chunkMatches.length} scientific references.`);
-
-      if (chunkMatches.length > 0 && chunkMatches[0].metadata) {
-        logMsg(`Matching Publication: ${chunkMatches[0].metadata.title || 'Unknown'}`);
-      }
-
-      const paperIds = chunkMatches.length > 0
-        ? [...new Set(chunkMatches.map(c => c.paper_id))]
-        : [];
-
-      // Fetch annotations for all matched papers
-      let allAnnotations = [];
-      if (paperIds.length > 0) {
-        const { data: annosData } = await supabase
-          .from('annotations')
-          .select('*')
-          .in('paper_id', paperIds);
-        allAnnotations = annosData || [];
-      }
-
-      // Fuzzy word-overlap matcher: returns annotations whose highlighted text
-      // shares >60% of its words with the chunk content
-      const matchAnnotationsToChunk = (chunkContent, paperAnnotations) => {
-        return paperAnnotations.filter(ann => {
-          if (!ann.text) return false;
-          const annWords = new Set(ann.text.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-          if (annWords.size === 0) return false;
-          const chunkLower = chunkContent.toLowerCase();
-          const matches = [...annWords].filter(w => chunkLower.includes(w));
-          return matches.length / annWords.size >= 0.6;
-        });
-      };
-
-      // Build enriched context: chunk text + any expert annotations that overlap it
-      const enrichedContext = chunkMatches.map(chunk => {
-        const paperAnnos = allAnnotations.filter(a => a.paper_id === chunk.paper_id);
-        const matched = matchAnnotationsToChunk(chunk.content, paperAnnos);
-        const title = chunk.metadata?.title || 'Unknown Paper';
-        const year = chunk.metadata?.year || '';
-
-        let entry = `[PAPER: "${title}" (${year})]\n${chunk.content}`;
-
-        if (matched.length > 0) {
-          const annotationBlocks = matched.map(ann =>
-            `  [EXPERT ANNOTATION]\n  Highlighted passage: "${ann.text}"\n  Reviewer comment: ${ann.comment}`
-          ).join('\n');
-          entry += `\n\n${annotationBlocks}`;
-          logMsg(`  └ Attached ${matched.length} expert annotation(s) to retrieved chunk.`);
+        logMsg("Verifying proposal domain alignment...");
+        const isQuantum = await checkIsQuantumComputingRelated(pitch, apiKey);
+        if (!isQuantum) {
+          logMsg("DOM-ALIGNMENT WARNING: Proposal is not related to quantum computing.");
+          setStatus('complete');
+          setResult({
+            score: 0,
+            verdict: "Infeasible",
+            summary: "This proposal was rejected because it is not related to quantum computing.",
+            assessment: "The Qilling free assessment only supports quantum computing concepts (hardware architectures, error correction models, algorithms, and related physics). Please submit a quantum-focused tech proposal to receive an evaluation.",
+            references: [],
+            is_rejected: true,
+            logs: ["Domain verification failed. Prompt rejected."]
+          });
+          return;
         }
+        logMsg("Domain alignment verified. Proceeding with evaluation...");
+      }
 
-        return entry;
-      });
+      let draftData = { draft_assessment: "", citations: [] };
+      let matchedAnnotations = [];
+      let matchedPaperIds = new Set();
+      let matchedPapersMap = {};
+      let dbPapers = [];
 
       logMsg("Fetching system guidelines and active skills...");
       let activeSkillsText = "";
@@ -335,68 +286,122 @@ function App() {
         console.error("Error reading skills table:", err);
       }
 
-      logMsg("Submitting context to verification model...");
-      const analysis = await generateAnalysis(pitch, enrichedContext, apiKey, activeSkillsText);
-      logMsg("Analysis completed. Finalizing evaluation reports...");
+      if (apiKey) {
+        logMsg("Analyzing technical proposal & querying academic citation database...");
+        draftData = await generateInitialDraft(pitch, apiKey, activeSkillsText);
+        logMsg(`Identified ${draftData.citations?.length || 0} candidate publication(s).`);
+      } else {
+        logMsg("No Gemini key configured — skipping draft generation.");
+      }
 
-      const references = [];
-
-      if (paperIds.length > 0) {
+      try {
+        logMsg("Cross-referencing citations with local expert database...");
         const { data: papersData } = await supabase
           .from('papers')
-          .select('*')
-          .in('id', paperIds);
+          .select('id, title, authors, year, source, pdf_url, status, assessment, assigned_to');
+        dbPapers = papersData || [];
+      } catch (err) {
+        console.error("Failed to query database papers:", err);
+      }
 
-        // Fetch completed paper reviews
-        let paperReviews = [];
-        const { data: reviewsData, error: reviewsError } = await supabase
-          .from('paper_reviews')
-          .select('*')
-          .in('paper_id', paperIds)
-          .eq('status', 'completed');
-        if (!reviewsError) {
-          paperReviews = reviewsData || [];
+      const cleanTitle = (t) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+
+      if (draftData.citations && draftData.citations.length > 0 && dbPapers.length > 0) {
+        for (const citation of draftData.citations) {
+          const cleanCitTitle = cleanTitle(citation.title);
+          if (!cleanCitTitle) continue;
+
+          const dbMatch = dbPapers.find(p => {
+            const cleanDbTitle = cleanTitle(p.title);
+            return cleanDbTitle.includes(cleanCitTitle) || cleanCitTitle.includes(cleanDbTitle);
+          });
+
+          if (dbMatch) {
+            logMsg(`Matched Citation: "${dbMatch.title}" (Found in Curated Database)`);
+            matchedPaperIds.add(dbMatch.id);
+            matchedPapersMap[citation.title] = dbMatch;
+          } else {
+            logMsg(`External Reference: "${citation.title}"`);
+          }
         }
+      }
 
-        if (papersData) {
-          papersData.forEach(p => {
-            const paperAnnos = allAnnotations.filter(a => a.paper_id === p.id);
-            
-            // Find reviews for this paper
-            let matchingReviews = paperReviews.filter(r => r.paper_id === p.id);
-            // Fallback to legacy single assignment
-            if (matchingReviews.length === 0 && p.status === 'completed' && p.assessment) {
-              matchingReviews = [{
-                reviewer_id: p.assigned_to,
-                status: 'completed',
-                assessment: p.assessment
-              }];
-            }
-
-            references.push({
-              id: p.id,
-              title: p.title,
-              author: p.authors || 'Unknown Author',
-              year: p.year || 'N/A',
-              source: p.source,
-              reviewed: matchingReviews.length > 0,
-              reviews: matchingReviews,
-              annotations: paperAnnos
+      if (matchedPaperIds.size > 0) {
+        logMsg("Retrieving expert reviewer feedback & annotations...");
+        const { data: annosData } = await supabase
+          .from('annotations')
+          .select('*')
+          .in('paper_id', [...matchedPaperIds]);
+        
+        if (annosData && annosData.length > 0) {
+          logMsg(`Applying ${annosData.length} expert comments to correct model logic...`);
+          annosData.forEach(ann => {
+            const dbPaper = dbPapers.find(p => p.id === ann.paper_id);
+            matchedAnnotations.push({
+              paper_title: dbPaper ? dbPaper.title : 'Unknown Paper',
+              text: ann.text,
+              comment: ann.comment,
+              reviewer_id: ann.reviewer_id
             });
           });
         }
       }
 
-      if (references.length === 0 && chunkMatches) {
-        chunkMatches.forEach((c, idx) => {
-          if (c.metadata) {
+      logMsg("Refining due diligence report using expert consensus signals...");
+      const analysis = await generateAnalysis(pitch, draftData, matchedAnnotations, apiKey, activeSkillsText);
+      logMsg("Analysis refined. Finalizing report...");
+
+      const references = [];
+      let paperReviews = [];
+      if (matchedPaperIds.size > 0) {
+        const { data: reviewsData } = await supabase
+          .from('paper_reviews')
+          .select('*')
+          .in('paper_id', [...matchedPaperIds])
+          .eq('status', 'completed');
+        paperReviews = reviewsData || [];
+      }
+
+      if (draftData.citations && draftData.citations.length > 0) {
+        draftData.citations.forEach((citation, idx) => {
+          const dbMatch = matchedPapersMap[citation.title];
+          if (dbMatch) {
+            const paperAnnos = matchedAnnotations.filter(a => a.paper_title === dbMatch.title);
+            let matchingReviews = paperReviews.filter(r => r.paper_id === dbMatch.id);
+            
+            // Legacy single-reviewer fallback
+            if (matchingReviews.length === 0 && dbMatch.status === 'completed' && dbMatch.assessment) {
+              matchingReviews = [{
+                reviewer_id: dbMatch.assigned_to,
+                status: 'completed',
+                assessment: dbMatch.assessment
+              }];
+            }
+
             references.push({
-              id: c.paper_id || `paper_${idx}`,
-              title: c.metadata.title || 'Unknown Abstract',
-              author: c.metadata.author || 'Unknown Author',
-              year: c.metadata.year || 'N/A',
-              source: c.metadata.source || 'arxiv',
-              reviewed: false
+              id: dbMatch.id,
+              title: dbMatch.title,
+              author: dbMatch.authors || citation.authors || 'Unknown Author',
+              year: dbMatch.year || citation.year || 'N/A',
+              source: dbMatch.source,
+              matched_in_db: true,
+              has_annotations: paperAnnos.length > 0,
+              reviewed: matchingReviews.length > 0,
+              reviews: matchingReviews,
+              annotations: paperAnnos
+            });
+          } else {
+            references.push({
+              id: `ext_${idx}`,
+              title: citation.title,
+              author: citation.authors || 'Unknown Author',
+              year: citation.year || 'N/A',
+              source: 'arxiv',
+              matched_in_db: false,
+              has_annotations: false,
+              reviewed: false,
+              reviews: [],
+              annotations: []
             });
           }
         });
@@ -409,9 +414,9 @@ function App() {
         assessment: analysis.assessment,
         references: references,
         logs: [
-          "Cross-referenced physics constraints via arXiv preprints.",
-          "Analyzed engineering feasibility using historical venture metrics.",
-          "Estimated timeline roadmap dependencies."
+          `Citations analyzed: ${draftData.citations?.length || 0}`,
+          `Curated database matches: ${matchedPaperIds.size}`,
+          `Expert annotations processed: ${matchedAnnotations.length}`
         ]
       });
 
@@ -636,26 +641,21 @@ function App() {
               <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] ${theme.glow} opacity-20 blur-[150px] rounded-full pointer-events-none transition-all duration-1000`} />
 
               <div className="max-w-6xl z-10 fade-in w-full flex flex-col items-center text-center">
-
                 <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black mb-10 mt-20 tracking-tighter leading-none uppercase">
-                  Curated AI assessment<br />
-                  for <span className="text-[#3ecf8e]">Quantum Tech</span>.
+                  Qill the Hype<span className="text-[#3ecf8e]">.</span><br />
+                  Free <span className="text-[#3ecf8e]">Quantum AI Audit</span>.
                 </h1>
 
                 <p className="text-xl sm:text-2xl md:text-3xl text-zinc-800 dark:text-zinc-300 font-light leading-relaxed max-w-4xl mx-auto px-4 mb-20">
-                  AI has learned to imitate the internet, not understand it.{" "}
-                  <span className="text-[#3ecf8e] dark:text-[#3ecf8e] font-semibold italic">
-                    It is only as good as the data it is trained on
-                  </span>
-                  , and we create expert-curated data.
+                  AI is full of hype, especially in quantum computing. We ground assessments by cross-referencing ideas against our curated database of peer-reviewed literature and expert annotations.
                 </p>
 
                 <h2 className="text-lg font-black uppercase tracking-[0.25em] text-[#3ecf8e] mb-6 font-mono">
-                  Try it yourself
+                  Qill the Hype Console
                 </h2>
 
                 <p className="text-base sm:text-lg text-gray-400 mb-10 max-w-2xl leading-relaxed font-light px-4 text-center">
-                  Evaluate quantum technology proposals, physical viability, and scaling roadblocks against peer-reviewed scientific literature and database indexes.
+                  Submit your quantum computing idea, hardware proposal, or algorithm to receive a free feasibility report supported by peer-reviewed literature.
                 </p>
 
                 {/* Unified Command Console */}
@@ -670,7 +670,7 @@ function App() {
                             <div className={`p-3 rounded-lg bg-${theme.color}-500/10 border border-${theme.color}-500/20 transition-all duration-500`}>
                               <ShieldCheck className={theme.accent} size={24} />
                             </div>
-                            <h3 className="font-black text-xl tracking-tight uppercase text-zinc-900 dark:text-white">Unified Feasibility & Growth Console</h3>
+                            <h3 className="font-black text-xl tracking-tight uppercase text-zinc-900 dark:text-white">Qill the Hype Quantum Console</h3>
                           </div>
                         </div>
 
@@ -678,7 +678,7 @@ function App() {
                           value={pitch}
                           onChange={(e) => setPitch(e.target.value)}
                           disabled={status === 'processing'}
-                          placeholder="Enter technical proposal or deep tech startup pitch to evaluate engineering risks, physical viability, and growth scaling pathways simultaneously..."
+                          placeholder="Enter your quantum computing hardware proposal, algorithm, or research idea (e.g., transmon coupling scheme, topological qubit design, or quantum error-correcting code) to check for feasibility..."
                           className="w-full h-32 sm:h-40 bg-zinc-50 dark:bg-black/40 border border-zinc-200 dark:border-white/10 rounded-xl p-6 font-mono text-sm text-zinc-900 dark:text-white focus:border-zinc-400 dark:focus:border-white/30 outline-none resize-none mb-6 transition-all"
                         />
 
@@ -726,27 +726,31 @@ function App() {
                                     Scientific Assessment
                                   </h4>
                                   <p className="text-gray-305 text-sm leading-relaxed">{result.assessment}</p>
-                                </div>
-
-                                {/* Request Curation (For User Role) */}
-                                {currentUser && currentUser.role === 'user' && (
-                                  <div className="p-5 border border-emerald-500/20 bg-emerald-500/5 rounded-xl flex flex-col gap-3">
-                                    <div>
-                                      <h5 className="font-bold text-xs text-emerald-400 uppercase tracking-wider flex items-center gap-1.5"><ShieldCheck size={14} /> Expert Peer Review & Validation</h5>
-                                      <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
-                                        Get a human-verified Scientific Evaluation Certificate from domain expert researchers and professors.
-                                      </p>
+                                  {/* Request Curation Upgrade Upsell (For All Roles / Guest) */}
+                                  {!result.is_rejected && (
+                                    <div className="p-6 border border-cyan-500/20 bg-gradient-to-r from-cyan-500/5 to-emerald-500/5 rounded-2xl flex flex-col gap-4 text-left mt-6">
+                                      <div>
+                                        <h5 className="font-bold text-sm text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                                          <ShieldCheck size={16} className="text-[#3ecf8e]" /> Expert Peer Review & Validation
+                                        </h5>
+                                        <p className="text-xs text-zinc-400 dark:text-gray-300 mt-2 leading-relaxed">
+                                          This automated AI assessment is a free initial feasibility scan. AI models can hallucinate or overlook deep engineering bottlenecks. To obtain a rigorous, human-verified <strong>Scientific Evaluation Certificate</strong> reviewed by domain expert researchers and professors, request a professional human audit.
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-t border-zinc-200 dark:border-white/5 pt-4">
+                                        <span className="text-lg font-black text-zinc-900 dark:text-white font-mono">$299 USD <span className="text-xs font-normal text-zinc-400 dark:text-gray-400">/ per audit</span></span>
+                                        <button
+                                          onClick={handleRequestExpertAudit}
+                                          disabled={status === 'submitting_audit'}
+                                          className="px-6 py-3 bg-[#3ecf8e] hover:bg-[#2ebf7e] text-black font-black uppercase tracking-wider text-[10px] rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-500/10 hover:shadow-emerald-500/20 flex items-center gap-1.5 disabled:opacity-50"
+                                        >
+                                          {status === 'submitting_audit' ? <Loader className="animate-spin" size={12} /> : <ShieldCheck size={12} />}
+                                          {status === 'submitting_audit' ? 'Ordering...' : 'Order Expert Audit'}
+                                        </button>
+                                      </div>
                                     </div>
-                                    <button
-                                      onClick={handleRequestExpertAudit}
-                                      disabled={status === 'submitting_audit'}
-                                      className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-wider text-[9px] rounded-lg transition-all shadow-md shadow-emerald-500/10 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                    >
-                                      {status === 'submitting_audit' ? <Loader className="animate-spin" size={12} /> : <ShieldCheck size={12} />}
-                                      {status === 'submitting_audit' ? 'Submitting Request...' : 'Submit Pitch for Expert Validation'}
-                                    </button>
-                                  </div>
-                                )}
+                                  )}
+                                </div>
 
                                 {/* Cited References with curation details */}
                                 {result.references && result.references.length > 0 && (
@@ -755,8 +759,15 @@ function App() {
                                     <div className="space-y-3">
                                       {result.references.map((ref, idx) => (
                                         <div key={idx} className="p-3 bg-white dark:bg-black/40 border border-zinc-150 dark:border-white/5 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                          <div className="flex-1">
-                                            <h5 className="font-bold text-xs text-zinc-800 dark:text-gray-200">{ref.title}</h5>
+                                          <div className="flex-1 text-left">
+                                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                                              <h5 className="font-bold text-xs text-zinc-800 dark:text-gray-200 leading-snug">{ref.title}</h5>
+                                              {ref.matched_in_db && (
+                                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 rounded-full text-[8px] font-black uppercase tracking-wider">
+                                                  <ShieldCheck size={9} /> Curated Database Match
+                                                </span>
+                                              )}
+                                            </div>
                                             <p className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono mt-0.5">{ref.author} ({ref.year})</p>
                                           </div>
                                           {ref.reviewed ? (
@@ -850,7 +861,7 @@ function App() {
         onProfileUpdated={(updatedUser) => setCurrentUser(updatedUser)}
       />
 
-      {/* Curation Reference details modal */}
+{/* Curation Reference details modal */}
       {selectedCurationRef && (
         <div className="fixed inset-0 z-[200] overflow-y-auto flex items-center justify-center p-4 bg-zinc-900/30 dark:bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200">
           <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-white/15 rounded-3xl shadow-2xl overflow-clip max-h-[90vh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200">
@@ -860,6 +871,11 @@ function App() {
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-400 rounded-full text-[9px] font-black uppercase tracking-wider">
                     <ShieldCheck size={11} /> Curation Audit Verified
                   </span>
+                  {selectedCurationRef.matched_in_db && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-700 dark:text-cyan-400 rounded-full text-[9px] font-black uppercase tracking-wider">
+                      <ShieldCheck size={11} /> Curated Database Match
+                    </span>
+                  )}
                   <span className="text-[10px] text-zinc-500 dark:text-gray-500 font-mono">Reference ID: {selectedCurationRef.id}</span>
                 </div>
                 <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white leading-snug">{selectedCurationRef.title}</h3>
